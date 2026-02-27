@@ -45,7 +45,7 @@ app.post('/api/generar-cuadros', async (req, res) => {
             grupos[ins.grupo].push(ins);
         }
 
-        const cuadros = await generarPrimeraRonda(horariosPorPista, inscripciones, cabezasDeSerie);
+        const cuadros = await generarPrimeraRonda(horariosPorPista, inscripciones, cabezasDeSerie, apiKey);
         res.status(200).json(cuadros);
 
     } catch (error) {
