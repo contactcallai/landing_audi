@@ -7,6 +7,12 @@ const { callOpenAI, construirPromptAnalisisTodas, evaluarPartidoUnico, generarPr
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Log para verificar variables en producción
+console.log("--- Verificación de Entorno ---");
+console.log(`Puerto: ${PORT}`);
+console.log(`OPENAI_API_KEY: ${process.env.OPENAI_API_KEY ? '✅ Cargada' : '❌ No encontrada'}`);
+console.log("-------------------------------");
+
 // Habilitar CORS para que el frontend local pueda hacer peticiones
 app.use(cors());
 
@@ -48,8 +54,8 @@ app.post('/api/generar-cuadros', async (req, res) => {
     }
 });
 
-const server = app.listen(PORT, () => {
-    console.log(`✅ Servidor backend encendido en http://localhost:${PORT}`);
+const server = app.listen(PORT, '0.0.0.0', () => {
+    console.log(`✅ Servidor backend encendido en http://0.0.0.0:${PORT}`);
 });
 
 server.on('error', (err) => {
@@ -61,7 +67,14 @@ process.on('exit', (code) => {
 });
 
 process.on('SIGINT', () => {
-    console.log("\n🛑 Apagando servidor...");
+    console.log("\n🛑 Recibido SIGINT, apagando servidor...");
+    server.close(() => {
+        process.exit(0);
+    });
+});
+
+process.on('SIGTERM', () => {
+    console.log("\n🛑 Recibido SIGTERM, apagando servidor...");
     server.close(() => {
         process.exit(0);
     });
