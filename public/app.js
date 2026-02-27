@@ -515,7 +515,13 @@ document.getElementById('btn-generate-draws').addEventListener('click', async ()
     loadingOverlay.classList.remove('hidden');
 
     try {
-        const cuadros = await generarPrimeraRonda(horariosPorPista, inscripciones, cabezasDeSerie);
+        const response = await axios.post('/api/generar-cuadros', {
+            horariosPorPista,
+            inscripciones,
+            cabezasDeSerie
+        });
+
+        const cuadros = response.data;
         console.log("Cuadros generados exitosamente:", cuadros);
         msgSucc.innerText = "Cuadros generados correctamente. Revisa la sección inferior.";
         renderizarCuadros(cuadros);
