@@ -1,0 +1,862 @@
+/* Variables & Design Tokens */
+:root {
+  --bg-color: #0d1117;
+  --surface-color: #161b22;
+  --surface-color-hover: #21262d;
+  --text-primary: #e6edf3;
+  --text-secondary: #8b949e;
+  --accent-blue: #00A3FF;
+  /* More vibrant blue */
+  --accent-blue-hover: #33B5FF;
+  /* Hover vibrant blue */
+  --accent-green: #238636;
+  --accent-red: #ff4444;
+  /* Vibrant red for remove button */
+  --border-color: #30363d;
+  --koala-blue: #00A3FF;
+  /* Adjust per logo if needed */
+  --font-family: 'Inter', sans-serif;
+  --border-radius: 12px;
+  --transition: all 0.3s ease;
+  --glass-bg: rgba(22, 27, 34, 0.7);
+  --glass-border: rgba(255, 255, 255, 0.1);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-family);
+  background-color: var(--bg-color);
+  color: var(--text-primary);
+  line-height: 1.6;
+}
+
+/* Header */
+header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 5%;
+  background: var(--glass-bg);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--glass-border);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.logo-container {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.koala-logo {
+  height: 48px;
+  width: 48px;
+  object-fit: contain;
+}
+
+.koala-title {
+  color: var(--koala-blue);
+  font-size: 1.5rem;
+  letter-spacing: -0.5px;
+}
+
+.koala-title strong {
+  font-weight: 700;
+}
+
+.koala-title span {
+  font-weight: 300;
+}
+
+.lang-selector select {
+  background: var(--surface-color);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  font-family: var(--font-family);
+  cursor: pointer;
+  outline: none;
+}
+
+/* Main Container */
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 2rem 1rem;
+}
+
+/* Hero */
+.hero {
+  text-align: center;
+  margin-bottom: 3rem;
+  animation: fadeIn 0.8s ease-out;
+}
+
+.audi-logo {
+  max-width: 250px;
+  margin-bottom: 1rem;
+  border-radius: var(--border-radius);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+
+.hero h2 {
+  font-size: 2.5rem;
+  font-weight: 700;
+  background: linear-gradient(135deg, #fff, #8b949e);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* Dropzones */
+.dropzones-section {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 1.5rem;
+  margin-bottom: 3rem;
+}
+
+.dropzone {
+  background: var(--surface-color);
+  border: 2px dashed var(--border-color);
+  border-radius: var(--border-radius);
+  padding: 2rem;
+  text-align: center;
+  transition: var(--transition);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  position: relative;
+  overflow: hidden;
+}
+
+.dropzone.has-file {
+  border-color: var(--accent-blue);
+  background: rgba(0, 163, 255, 0.05);
+  /* Slight blue tint */
+  box-shadow: 0 0 15px rgba(0, 163, 255, 0.2);
+}
+
+.remove-file-btn {
+  position: absolute;
+  top: 10px;
+  right: 15px;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 1.5rem;
+  cursor: pointer;
+  transition: var(--transition);
+  line-height: 1;
+}
+
+.remove-file-btn:hover {
+  color: var(--accent-red);
+  text-shadow: 0 0 8px rgba(255, 68, 68, 0.6);
+}
+
+.dropzone:hover,
+.dropzone.dragover {
+  border-color: var(--accent-blue);
+  background: var(--surface-color-hover);
+}
+
+.file-input {
+  display: none;
+}
+
+.upload-btn {
+  background: var(--surface-color-hover);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  padding: 0.5rem 1.5rem;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: var(--transition);
+}
+
+.upload-btn:hover {
+  background: var(--accent-blue);
+  border-color: var(--accent-blue);
+}
+
+.file-name {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+/* Cards / Sections */
+.card {
+  background: var(--surface-color);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  padding: 2rem;
+  margin-bottom: 3rem;
+}
+
+.card h3 {
+  margin-bottom: 1.5rem;
+  font-size: 1.5rem;
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 0.5rem;
+}
+
+/* Config Grid */
+.config-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.form-group label {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
+input[type="date"],
+input[type="text"],
+input[type="number"],
+input[type="time"],
+select.time-select {
+  background: var(--bg-color);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  padding: 0.75rem;
+  border-radius: 8px;
+  font-family: inherit;
+  outline: none;
+  transition: var(--transition);
+  width: 100%;
+}
+
+input[type="date"]:focus,
+input[type="text"]:focus,
+input[type="number"]:focus,
+input[type="time"]:focus,
+select.time-select:focus {
+  border-color: var(--accent-blue);
+  box-shadow: 0 0 0 2px rgba(47, 129, 247, 0.3);
+}
+
+/* Batch Edit */
+.batch-edit {
+  background: var(--bg-color);
+  padding: 1.5rem;
+  border-radius: 8px;
+  margin-bottom: 2rem;
+  border: 1px solid var(--border-color);
+}
+
+.batch-edit h4 {
+  margin-bottom: 1rem;
+  font-size: 1rem;
+  color: var(--text-secondary);
+}
+
+.batch-controls {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.time-sep {
+  color: var(--text-secondary);
+}
+
+/* Courts Container */
+.courts-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.court-box {
+  background: var(--bg-color);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 1rem;
+  min-width: 250px;
+  flex: 1;
+}
+
+.court-header {
+  font-weight: 600;
+  margin-bottom: 1rem;
+  color: var(--accent-blue);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.court-header button {
+  background: none;
+  border: none;
+  color: var(--accent-green);
+  cursor: pointer;
+  font-size: 0.8rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+}
+
+.court-header button:hover {
+  background: var(--surface-color-hover);
+}
+
+.time-slots {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.time-slot {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: var(--surface-color);
+  padding: 0.5rem;
+  border-radius: 6px;
+}
+
+.time-slot.exception {
+  border-left: 2px solid #d29922;
+  /* Warning yellowish */
+}
+
+/* Buttons */
+.actions-section {
+  display: flex;
+  justify-content: center;
+  gap: 1rem;
+  margin-bottom: 2rem;
+  flex-wrap: wrap;
+}
+
+.btn-primary,
+.btn-secondary {
+  padding: 0.8rem 2rem;
+  border: none;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: var(--transition);
+  font-family: inherit;
+}
+
+.btn-primary {
+  background: var(--accent-blue);
+  color: #fff;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--accent-blue-hover);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(47, 129, 247, 0.4);
+}
+
+.btn-primary:disabled {
+  background: var(--surface-color-hover);
+  color: var(--text-secondary);
+  cursor: not-allowed;
+}
+
+.btn-secondary {
+  background: var(--surface-color-hover);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+}
+
+.btn-secondary:hover {
+  background: var(--surface-color);
+  border-color: var(--text-secondary);
+}
+
+/* Messages */
+.success-msg,
+.error-msg {
+  padding: 1rem;
+  border-radius: 8px;
+  text-align: center;
+  margin-bottom: 2rem;
+  font-weight: 600;
+}
+
+.success-msg {
+  background: rgba(35, 134, 54, 0.2);
+  color: #3fb950;
+  border: 1px solid rgba(63, 185, 80, 0.4);
+}
+
+.error-msg {
+  background: rgba(248, 81, 73, 0.2);
+  color: #ff7b72;
+  border: 1px solid rgba(255, 123, 114, 0.4);
+}
+
+.hidden {
+  display: none !important;
+}
+
+/* Results Layout */
+.results-section {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2rem;
+}
+
+@media (max-width: 768px) {
+  .results-section {
+    grid-template-columns: 1fr;
+  }
+}
+
+.column {
+  background: var(--surface-color);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  padding: 1.5rem;
+}
+
+.col-title {
+  text-align: center;
+  color: var(--text-secondary);
+  margin-bottom: 1.5rem;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-size: 0.9rem;
+}
+
+.category-group {
+  margin-bottom: 2rem;
+}
+
+.cat-title {
+  font-size: 1.1rem;
+  color: var(--accent-blue);
+  margin-bottom: 1rem;
+  border-left: 3px solid var(--accent-blue);
+  padding-left: 0.5rem;
+}
+
+.seed-box {
+  background: var(--bg-color);
+  border: 1px solid var(--border-color);
+  padding: 0.75rem 1rem;
+  border-radius: 6px;
+  margin-bottom: 0.5rem;
+  display: flex;
+  align-items: center;
+}
+
+.seed-label {
+  font-weight: 700;
+  color: var(--text-secondary);
+  width: 40px;
+}
+
+.seed-name {
+  color: var(--text-primary);
+}
+
+.no-seeds {
+  color: var(--text-secondary);
+  font-style: italic;
+  font-size: 0.9rem;
+  padding: 0.5rem;
+}
+
+/* Footer */
+footer {
+  background: var(--surface-color);
+  border-top: 1px solid var(--border-color);
+  padding: 3rem 5% 2rem;
+  margin-top: 4rem;
+}
+
+.footer-content {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+.footer-logo {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.footer-logo img {
+  height: 40px;
+}
+
+.footer-logo p {
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 1.2rem;
+}
+
+.copyright {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.social-links {
+  display: flex;
+  gap: 1.5rem;
+}
+
+.social-links a {
+  color: var(--text-secondary);
+  text-decoration: none;
+  transition: var(--transition);
+}
+
+.social-links a:hover {
+  color: var(--accent-blue);
+}
+
+/* Animations */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Flatpickr Variables Override for Blue Theme */
+.flatpickr-calendar {
+  background: var(--surface-color) !important;
+  border: 1px solid var(--border-color) !important;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5) !important;
+}
+
+.flatpickr-day {
+  color: var(--text-primary) !important;
+}
+
+.flatpickr-day.inRange,
+.flatpickr-day.prevMonthDay.inRange,
+.flatpickr-day.nextMonthDay.inRange,
+.flatpickr-day.today.inRange,
+.flatpickr-day.prevMonthDay.today.inRange,
+.flatpickr-day.nextMonthDay.today.inRange,
+.flatpickr-day:hover,
+.flatpickr-day.prevMonthDay:hover,
+.flatpickr-day.nextMonthDay:hover,
+.flatpickr-day:focus,
+.flatpickr-day.prevMonthDay:focus,
+.flatpickr-day.nextMonthDay:focus {
+  background: rgba(0, 163, 255, 0.2) !important;
+  border-color: rgba(0, 163, 255, 0.3) !important;
+}
+
+.flatpickr-day.selected,
+.flatpickr-day.startRange,
+.flatpickr-day.endRange,
+.flatpickr-day.selected.inRange,
+.flatpickr-day.startRange.inRange,
+.flatpickr-day.endRange.inRange,
+.flatpickr-day.selected:focus,
+.flatpickr-day.startRange:focus,
+.flatpickr-day.endRange:focus,
+.flatpickr-day.selected:hover,
+.flatpickr-day.startRange:hover,
+.flatpickr-day.endRange:hover,
+.flatpickr-day.selected.prevMonthDay,
+.flatpickr-day.startRange.prevMonthDay,
+.flatpickr-day.endRange.prevMonthDay,
+.flatpickr-day.selected.nextMonthDay,
+.flatpickr-day.startRange.nextMonthDay,
+.flatpickr-day.endRange.nextMonthDay {
+  background: var(--accent-blue) !important;
+  color: #fff !important;
+  border-color: var(--accent-blue) !important;
+}
+
+.flatpickr-month,
+.flatpickr-current-month .flatpickr-monthDropdown-months,
+.flatpickr-current-month .numInputWrapper {
+  color: var(--text-primary) !important;
+  fill: var(--text-primary) !important;
+}
+
+.flatpickr-weekday {
+  color: var(--text-secondary) !important;
+}
+
+span.flatpickr-weekday {
+  color: var(--text-secondary) !important;
+}
+
+.flatpickr-current-month input.cur-year {
+  color: var(--text-primary) !important;
+}
+
+.flatpickr-time {
+  border-top-color: var(--border-color) !important;
+}
+
+/* --- Brackets / Cuadros (Formato Árbol) --- */
+.draws-section {
+  margin-top: 4rem;
+  padding: 1rem;
+}
+
+.draws-container {
+  display: flex;
+  flex-direction: column;
+  gap: 3rem;
+}
+
+.bracket-category {
+  background: var(--surface-color);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  padding: 2rem;
+  overflow-x: auto;
+}
+
+.bracket-category h3 {
+  color: var(--text-primary);
+  margin-bottom: 2rem;
+  border-bottom: 2px solid var(--accent-blue);
+  display: inline-block;
+  padding-bottom: 0.5rem;
+}
+
+.bracket-wrapper {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 2rem;
+  min-width: max-content;
+}
+
+.bracket-column {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-around;
+  gap: 1.5rem;
+  width: 320px;
+}
+
+.match-box-container {
+  display: flex;
+  align-items: center;
+  position: relative;
+  flex: 1;
+  /* Estirar */
+  justify-content: center;
+}
+
+/* 1. Conector Horizontal Derecho (Saliendo de todas las cajas menos la última ronda) */
+.match-box-container::after {
+  content: '';
+  position: absolute;
+  right: -1rem;
+  top: 50%;
+  width: 1rem;
+  height: 2px;
+  background-color: var(--accent-blue);
+  display: block;
+  z-index: 1;
+}
+
+.bracket-column:last-child .match-box-container::after {
+  display: none;
+}
+
+/* 2. Conector Vertical (Línea que une hacia abajo un impar con el de abajo)
+   La solución más limpia y precisa en un flexbox con alturas de caja variables es:
+   - top: 50% (mitad exacta de ESTA caja)
+   - height: calc(100% + 1.5rem); // 1.5rem es el gap
+   Pero `100%` es el 100% DE LA CAJA ACTUAL. Si la caja impar y la par tienen
+   distinta altura (ej. nombres largos vs cortos), la línea se pasa o se queda corta
+   porque el centro de la de abajo estará en otra posición diferente a "esta altura".
+   
+   La solución absoluta es que el ::before conecte desde el TOP (50%) de la impar
+   y baje exactamente 'gap' + la mitad de la CAJA PAR. Como solo CSS no puede predecir 
+   la caja hermana (el nextElementSibling), vamos a usar un layout de GRID de 2 filas
+   o un hack sobre el top/bottom si lo englobáramos por parejas.
+   
+   Como el HTML no está englobado por pajeras, el método más dinámico para "vincular"
+   cajas de distintas alturas sin fallos visuales es dar a cada contenedor de partido un 
+   borde lateral. */
+
+.match-box-container::before {
+  /* Restablecemos todo ::before usado anteriormente antes de sobreescribirlo */
+  content: none;
+}
+
+/* -- NUEVO ENFOQUE: Bordes en los conectores horizontales -- 
+   El IMPAR (arriba) dibuja la línea hacia abajo usando un borde derecho que baja hasta el borde inferior de su contenedor (incluyendo mitad gap).
+   El PAR (abajo) dibuja la línea hacia arriba usando un borde derecho que sube...
+*/
+
+.match-box-container:nth-child(odd)::before {
+  content: '';
+  position: absolute;
+  right: -1rem;
+  top: 50%;
+  /* Arranca en la mitad de esta caja (arriba) */
+  bottom: calc(-0.75rem - 1px);
+  /* Baja hasta la MITAD exacta del gap (1.5rem / 2 = 0.75rem). El -1px ajusta los trazos */
+  width: 2px;
+  background-color: var(--accent-blue);
+  z-index: 0;
+}
+
+.match-box-container:nth-child(even)::before {
+  content: '';
+  position: absolute;
+  right: -1rem;
+  top: calc(-0.75rem - 1px);
+  /* Sube hasta la MITAD exacta del gap */
+  bottom: 50%;
+  /* Termina en la mitad cruzando el conector central de la caja (abajo) */
+  width: 2px;
+  background-color: var(--accent-blue);
+  z-index: 0;
+}
+
+/* Evitamos que este conector se muestre en la última columna */
+.bracket-column:last-child .match-box-container:nth-child(odd)::before,
+.bracket-column:last-child .match-box-container:nth-child(even)::before {
+  display: none;
+}
+
+/* 3. Conector Izquierdo (Entrando al partido desde la izquierda) */
+.bracket-column:not(:first-child) .match-box::before {
+  content: '';
+  position: absolute;
+  left: -1rem;
+  top: 50%;
+  width: 1rem;
+  height: 2px;
+  background-color: var(--accent-blue);
+  display: block;
+  transform: translateY(-50%);
+  z-index: 0;
+}
+
+/* Eliminamos bordes no deseados en la match-box para limpiar */
+.match-box {
+  background: var(--bg-color);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 0.75rem;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+  position: relative;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  z-index: 2;
+  /* Por encima de la línea */
+}
+
+/* Entrada a la caja desde la izq. (Conector horizontal) */
+.bracket-column:not(:first-child) .match-box::before {
+  content: '';
+  position: absolute;
+  left: -1rem;
+  /* -gap/2 */
+  top: 50%;
+  width: 1rem;
+  height: 2px;
+  background-color: var(--accent-blue);
+  transform: translateY(-50%);
+  z-index: 0;
+}
+
+.match-info {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  background: var(--surface-color-hover);
+  padding: 0.3rem 0.6rem;
+  border-radius: 4px;
+  font-weight: 600;
+  display: flex;
+  justify-content: space-between;
+}
+
+.match-info span:first-child {
+  color: var(--accent-blue);
+}
+
+.match-teams {
+  display: flex;
+  flex-direction: column;
+}
+
+.team {
+  padding: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--text-primary);
+  border-left: 3px solid transparent;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.team:last-child {
+  border-bottom: none;
+}
+
+/* Indicador de ganador / punto */
+.team::before {
+  content: '';
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 8px;
+  background-color: transparent;
+}
+
+.team.filled::before {
+  background-color: #A3FF00;
+  /* Color lima como en la imagen */
+}
+
+.score {
+  font-weight: bold;
+  font-size: 0.8rem;
+  color: var(--text-primary);
+}
+
+.team.bye {
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.team.bye::before {
+  display: none;
+}
