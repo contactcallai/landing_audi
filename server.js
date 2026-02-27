@@ -2,7 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
-const { callOpenAI, construirPromptAnalisisTodas, evaluarPartidoUnico, generarPrimeraRonda } = require('./public/generador-cuadros-cabeza-ia-pista.js');
+const { callOpenAI, construirPromptAnalisisTodas, evaluarPartidoUnico, generarPrimeraRonda } = require('./generador-cuadros-cabeza-ia-pista.js');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
