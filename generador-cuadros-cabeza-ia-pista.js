@@ -391,7 +391,7 @@ async function callOpenAI(prompt, apiKey) {
         console.log("... Enviando datos a OpenAI (esto puede tardar más de un minuto) ...");
 
         const response = await axios.post(url, {
-            model: "gpt-4-turbo-preview", // Updated to a valid known model
+            model: "gpt-5", // Updated to a valid known model
             messages: [
                 { role: "user", content: prompt }
             ],

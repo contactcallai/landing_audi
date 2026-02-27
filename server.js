@@ -54,8 +54,8 @@ app.post('/api/generar-cuadros', async (req, res) => {
     }
 });
 
-const server = app.listen(PORT, '0.0.0.0', () => {
-    console.log(`✅ Servidor backend encendido en http://0.0.0.0:${PORT}`);
+const server = app.listen(PORT, () => {
+    console.log(`✅ Servidor backend encendido en http://localhost:${PORT}`);
 });
 
 server.on('error', (err) => {
@@ -67,14 +67,7 @@ process.on('exit', (code) => {
 });
 
 process.on('SIGINT', () => {
-    console.log("\n🛑 Recibido SIGINT, apagando servidor...");
-    server.close(() => {
-        process.exit(0);
-    });
-});
-
-process.on('SIGTERM', () => {
-    console.log("\n🛑 Recibido SIGTERM, apagando servidor...");
+    console.log("\n🛑 Apagando servidor...");
     server.close(() => {
         process.exit(0);
     });
