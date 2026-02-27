@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="ca">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Generació d'Encuadraments Audi Padel Series</title>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <script src="https://npmcdn.com/flatpickr/dist/l10n/ca.js"></script>
+    <script src="https://npmcdn.com/flatpickr/dist/l10n/es.js"></script>
+</head>
+
+<body>
+    <header>
+        <div class="logo-container">
+            <img src="Logo_Koala_Virtual.png" alt="Koala Virtual Logo" class="koala-logo">
+            <h1 class="koala-title"><strong>Koala</strong><span>Virtual</span></h1>
+        </div>
+        <div class="lang-selector">
+            <select id="lang-switch">
+                <option value="ca">Català</option>
+                <option value="es">Castellano</option>
+            </select>
+        </div>
+    </header>
+
+    <main class="container">
+        <section class="hero">
+            <img src="Logo_Audi_Padel_Series.jpg" alt="Audi Padel Series" class="audi-logo">
+            <h2 id="page-title">Generació d'Encuadraments Audi Padel Series</h2>
+        </section>
+
+        <!-- Dropzones Section -->
+        <section class="dropzones-section">
+            <div class="dropzone" id="dz-inscritos">
+                <button class="remove-file-btn hidden" id="remove-inscritos"
+                    onclick="removeSelectedFile('inscritos', event)">&times;</button>
+                <p id="txt-inscritos">Inscrits al torneig (XLSX)</p>
+                <input type="file" id="file-inscritos" accept=".xlsx" class="file-input">
+                <button class="upload-btn" onclick="document.getElementById('file-inscritos').click()">Adjuntar</button>
+                <span class="file-name" id="name-inscritos">Cap arxiu seleccionat</span>
+            </div>
+
+            <div class="dropzone" id="dz-ranking-masc">
+                <button class="remove-file-btn hidden" id="remove-ranking-masc"
+                    onclick="removeSelectedFile('ranking-masc', event)">&times;</button>
+                <p id="txt-ranking-masc">Ranking masculí (XLSX)</p>
+                <input type="file" id="file-ranking-masc" accept=".xlsx" class="file-input">
+                <button class="upload-btn"
+                    onclick="document.getElementById('file-ranking-masc').click()">Adjuntar</button>
+                <span class="file-name" id="name-ranking-masc">Cap arxiu seleccionat</span>
+            </div>
+
+            <div class="dropzone" id="dz-ranking-fem">
+                <button class="remove-file-btn hidden" id="remove-ranking-fem"
+                    onclick="removeSelectedFile('ranking-fem', event)">&times;</button>
+                <p id="txt-ranking-fem">Ranking femení (XLSX)</p>
+                <input type="file" id="file-ranking-fem" accept=".xlsx" class="file-input">
+                <button class="upload-btn"
+                    onclick="document.getElementById('file-ranking-fem').click()">Adjuntar</button>
+                <span class="file-name" id="name-ranking-fem">Cap arxiu seleccionat</span>
+            </div>
+        </section>
+
+        <!-- Tournament Config Section -->
+        <section class="config-section card">
+            <h3 id="txt-config-title">Configuració del Torneig</h3>
+            <div class="config-grid">
+                <div class="form-group date-picker-group">
+                    <label id="txt-tournament-dates" for="tournament-dates">Dates del torneig</label>
+                    <input type="text" id="tournament-dates" placeholder="Tria les dates...">
+                </div>
+                <div class="form-group">
+                    <label id="txt-courts" for="num-courts">Número de pistes</label>
+                    <input type="number" id="num-courts" min="1" max="20" value="1">
+                </div>
+            </div>
+
+            <!-- Batch Edit -->
+            <div class="batch-edit">
+                <h4 id="txt-batch-edit-title">Batch Edit de Disponibilitat</h4>
+                <div class="batch-controls">
+                    <select id="batch-start-time" class="time-select"></select>
+                    <span class="time-sep">a</span>
+                    <select id="batch-end-time" class="time-select"></select>
+                    <button id="btn-apply-batch" class="btn-secondary">Aplicar a totes les pistes</button>
+                </div>
+            </div>
+
+            <div id="courts-container" class="courts-container">
+                <!-- Generat dinàmicament -->
+            </div>
+        </section>
+
+        <!-- Action Buttons -->
+        <section class="actions-section">
+            <button id="btn-generate-seeds" class="btn-primary">Generar caps de sèrie</button>
+            <button id="btn-generate-draws" class="btn-primary" disabled>Generar equadraments</button>
+        </section>
+
+        <!-- Success Message -->
+        <div id="success-msg" class="success-msg hidden">
+            Caps de sèrie generats correctament.
+        </div>
+        <div id="error-msg" class="error-msg hidden">
+            Falten dades. Si us plau, puja tots els arxius i configura el torneig.
+        </div>
+
+        <section class="results-section">
+            <div class="column masculine-col">
+                <h3 id="txt-masc-title" class="col-title">Categories Masculines</h3>
+                <div id="masc-results" class="results-list">
+                    <!-- Generat dinàmicament -->
+                </div>
+            </div>
+
+            <div class="column feminine-col">
+                <h3 id="txt-fem-title" class="col-title">Categories Femenines</h3>
+                <div id="fem-results" class="results-list">
+                    <!-- Generat dinàmicament -->
+                </div>
+            </div>
+        </section>
+
+        <!-- Draws Section (Brackets) -->
+        <section class="draws-section mt-5" id="draws-section" style="display: none;">
+            <h2 id="txt-draws-title" class="col-title"
+                style="margin-bottom:2rem; font-size:2rem; color:var(--accent-blue)">Cuadros Generados</h2>
+            <div id="draws-container" class="draws-container">
+                <!-- Generat dinàmicament -->
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <div class="footer-content">
+            <div class="footer-logo">
+                <img src="Logo_Koala_Virtual.png" alt="Koala Virtual Logo">
+                <p>KoalaVirtual</p>
+            </div>
+            <p class="copyright">© 2026 KoalaVirtual. Tots els drets reservats.</p>
+            <div class="social-links">
+                <a href="https://www.instagram.com/koalavirtual_/" target="_blank">Instagram</a>
+                <a href="https://www.tiktok.com/@koalavirtual" target="_blank">TikTok</a>
+                <a href="#" target="_blank">LinkedIn</a>
+                <a href="#" target="_blank">Facebook</a>
+                <a href="#" target="_blank">Twitter</a>
+            </div>
+        </div>
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <script src="app.js"></script>
+
+    <!-- Overlay Loading -->
+    <div id="loading-overlay" class="loading-overlay hidden">
+        <div class="spinner"></div>
+        <p class="loading-text">Generant els quadres amb Inteligència Artificial...</p>
+    </div>
+</body>
+
+</html>
