@@ -120,20 +120,29 @@ async function generarPrimeraRonda(horariosPorPista, inscripciones, cabezasDeSer
         let bracketIntentoReal = [];
 
         const fantasmasNecesarios = potencia - numParejas;
-        let posicionesFantasmas = new Set([1, potencia - 2]);
+        
+        // 1. Establecer el orden de prioridad estricto para los BYES
+        const ordenPrioridad = [];
+        if (potencia >= 4) {
+            ordenPrioridad.push(1);            // Prioridad 1: Oponente del cabeza de serie 1 (índice 0)
+            ordenPrioridad.push(potencia - 2); // Prioridad 2: Oponente del cabeza de serie 2 (índice final)
+        } else if (potencia === 2) {
+            ordenPrioridad.push(1);
+        }
 
+        // 2. Rellenar el resto de la lista de prioridad con otras posiciones impares
         for (let i = 1; i < potencia; i += 2) {
-            if (posicionesFantasmas.size < fantasmasNecesarios + 2) {
-                posicionesFantasmas.add(i);
+            if (!ordenPrioridad.includes(i)) {
+                ordenPrioridad.push(i);
             }
         }
 
-        let fantasmasCount = 0;
-        for (let i = 0; i < potencia; i++) {
-            if (posicionesFantasmas.has(i) && fantasmasCount < fantasmasNecesarios) {
-                bracketBase[i] = { nombre: "Fantasma (BYE)", esBye: true };
-                fantasmasCount++;
-            }
+        // 3. Tomar EXACTAMENTE los byes necesarios, respetando la prioridad
+        const posicionesAsignadas = ordenPrioridad.slice(0, fantasmasNecesarios);
+
+        // 4. Inyectar los fantasmas en sus posiciones definitivas dentro de bracketBase
+        for (let pos of posicionesAsignadas) {
+            bracketBase[pos] = { nombre: "Fantasma (BYE)", esBye: true };
         }
 
         let mejorCuadroGrupo = null;
