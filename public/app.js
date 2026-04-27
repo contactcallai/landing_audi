@@ -9,8 +9,10 @@ const i18n = {
         configTitle: "Configuració del Torneig",
         txtTournamentDates: "Dates del torneig",
         txtCourts: "Número de pistes",
-        batchEditTitle: "Batch Edit de Disponibilitat",
+        batchEditTitle: "Horari general del torneig",
         btnApplyBatch: "Aplicar a totes les pistes",
+        showAllHours: "+ Mostrar totes les hores",
+        hideExtraHours: "− Ocultar hores extra",
         btnGenerateSeeds: "Generar caps de sèrie",
         btnGenerateDraws: "Generar equadraments",
         successMsg: "Caps de sèrie generats correctament.",
@@ -34,8 +36,10 @@ const i18n = {
         configTitle: "Configuración del Torneo",
         txtTournamentDates: "Fechas del torneo",
         txtCourts: "Número de pistas",
-        batchEditTitle: "Batch Edit de Disponibilidad",
+        batchEditTitle: "Horario general del torneo",
         btnApplyBatch: "Aplicar a todas las pistas",
+        showAllHours: "+ Mostrar todas las horas",
+        hideExtraHours: "− Ocultar horas extra",
         btnGenerateSeeds: "Generar cabezas de serie",
         btnGenerateDraws: "Generar cuadros",
         successMsg: "Cabezas de serie generados correctamente.",
@@ -90,19 +94,71 @@ document.getElementById('lang-switch').addEventListener('change', (e) => {
     currentLang = e.target.value;
     updateUI();
     if (window.datePicker) {
-        window.datePicker.set('locale', currentLang);
+        const currentDates = window.datePicker.selectedDates;
+        initDatePicker(currentDates);
     }
 });
 
-// Initialization
-document.addEventListener('DOMContentLoaded', () => {
+// --- Variables Globales de Tiempo ---
+let tournamentDays = []; // Almacenará los días en formato estricto 'YYYY-MM-DD'
+
+// Diccionario nativo en crudo para puentear el bug de la librería Flatpickr (ca vs cat)
+const flatpickrCatalan = {
+    weekdays: {
+        shorthand: ["Dg", "Dl", "Dt", "Dc", "Dj", "Dv", "Ds"],
+        longhand: [
+            "Diumenge", "Dilluns", "Dimarts", "Dimecres",
+            "Dijous", "Divendres", "Dissabte"
+        ]
+    },
+    months: {
+        shorthand: [
+            "Gen", "Feb", "Març", "Abr", "Maig", "Juny",
+            "Jul", "Ag", "Set", "Oct", "Nov", "Des"
+        ],
+        longhand: [
+            "Gener", "Febrer", "Març", "Abril", "Maig", "Juny",
+            "Juliol", "Agost", "Setembre", "Octubre", "Novembre", "Desembre"
+        ]
+    },
+    firstDayOfWeek: 1,
+    ordinal: () => { return "è"; },
+    rangeSeparator: " a ",
+    time_24hr: true
+};
+
+// Función constructora actualizada
+function initDatePicker(preserveDates = null) {
+    if (window.datePicker) {
+        window.datePicker.destroy();
+    }
+
+    // Inyección estricta: si es español usa la CDN, si es catalán usa nuestro objeto infalible
+    const fpLocale = currentLang === 'ca' ? flatpickrCatalan : flatpickr.l10ns.es;
+
     window.datePicker = flatpickr("#tournament-dates", {
         mode: "range",
         dateFormat: "d/m/Y",
-        locale: currentLang
+        locale: fpLocale, // Recibe el objeto en crudo 100% garantizado
+        defaultDate: preserveDates,
+        onChange: function (selectedDates) {
+            if (selectedDates.length > 0) {
+                let start = selectedDates[0];
+                let end = selectedDates.length > 1 ? selectedDates[1] : selectedDates[0];
+                actualizarDiasTorneo(start, end);
+            } else {
+                tournamentDays = [];
+                courts.forEach(c => c.daily = {});
+            }
+            renderCourts();
+        }
     });
+}
 
-    // populate batch times explicitly so they match our logic
+// Inicialización
+document.addEventListener('DOMContentLoaded', () => {
+    initDatePicker(); // Llamada inicial sin fechas
+
     const dummySelect = buildTimeSelect('17:00', '', '');
     const optionsHtml = dummySelect.replace(/<select.*?>|<\/select>/g, '');
     document.getElementById('batch-start-time').innerHTML = optionsHtml;
@@ -187,9 +243,63 @@ setupFileDropzone('inscritos', 'inscritos');
 setupFileDropzone('ranking-masc', 'rankingMasc');
 setupFileDropzone('ranking-fem', 'rankingFem');
 
-// --- Courts Configuration ---
-let courts = [];
+// --- Variables de Horario Base Global ---
+let globalStart = '17:00';
+let globalEnd = '21:00';
 
+// --- Configuración de Pistas ---
+let courts = [{ daily: {} }];
+
+// Genera objeto de slots { "17:00": true, ... } para el rango [start, end)
+function getBaseSlots(start, end) {
+    const slots = {};
+    const startH = parseInt(start.split(':')[0]);
+    const endH = parseInt(end.split(':')[0]);
+    for (let h = startH; h < endH; h++) {
+        slots[`${String(h).padStart(2, '0')}:00`] = true;
+    }
+    return slots;
+}
+
+function actualizarDiasTorneo(startDate, endDate) {
+    // Leer horario base actual desde los selects
+    const bStart = document.getElementById('batch-start-time');
+    const bEnd = document.getElementById('batch-end-time');
+    if (bStart && bEnd) {
+        globalStart = bStart.value || '17:00';
+        globalEnd = bEnd.value || '21:00';
+    }
+
+    tournamentDays = [];
+    let current = new Date(startDate);
+
+    while (current <= endDate) {
+        // CORRECCIÓN: Extraer año, mes y día en hora local para evitar el desfase UTC
+        const year = current.getFullYear();
+        const month = String(current.getMonth() + 1).padStart(2, '0');
+        const day = String(current.getDate()).padStart(2, '0');
+
+        tournamentDays.push(`${year}-${month}-${day}`);
+
+        // Sumar un día de forma segura
+        current.setDate(current.getDate() + 1);
+    }
+
+    courts.forEach(court => {
+        if (!court.daily) court.daily = {};
+        tournamentDays.forEach(day => {
+            if (!court.daily[day]) {
+                court.daily[day] = {
+                    active: true,
+                    expanded: false,
+                    slots: getBaseSlots(globalStart, globalEnd)
+                };
+            }
+        });
+    });
+}
+
+// Se mantiene para los selects del Horario Base Global (batch-start/end-time)
 function buildTimeSelect(value, cls, dataAttrs) {
     let options = '';
     for (let h = 8; h <= 23; h++) {
@@ -202,58 +312,123 @@ function buildTimeSelect(value, cls, dataAttrs) {
     return `<select class="${cls}" ${dataAttrs}>${options}</select>`;
 }
 
+// Parseo seguro sin desfase de timezone
+function formatearFechaLocal(fechaISO) {
+    const [year, month, day] = fechaISO.split('-').map(Number);
+    const date = new Date(year, month - 1, day);
+    return date.toLocaleDateString(currentLang === 'ca' ? 'ca-ES' : 'es-ES', {
+        weekday: 'short', day: '2-digit', month: '2-digit'
+    });
+}
+
+function toggleSlot(courtIdx, day, hour) {
+    courts[courtIdx].daily[day].slots[hour] = !courts[courtIdx].daily[day].slots[hour];
+    renderCourts();
+}
+
+function toggleDayActive(courtIdx, day) {
+    courts[courtIdx].daily[day].active = !courts[courtIdx].daily[day].active;
+    renderCourts();
+}
+
+function toggleExpanded(courtIdx, day) {
+    const dayData = courts[courtIdx].daily[day];
+    dayData.expanded = !dayData.expanded;
+    // Al expandir, rellenar horas aún no registradas como inactivas
+    if (dayData.expanded) {
+        for (let h = 8; h <= 22; h++) {
+            const key = `${String(h).padStart(2, '0')}:00`;
+            if (!(key in dayData.slots)) dayData.slots[key] = false;
+        }
+    }
+    renderCourts();
+}
+
 function renderCourts() {
     const container = document.getElementById('courts-container');
     container.innerHTML = '';
     const dict = i18n[currentLang];
 
+    if (tournamentDays.length === 0) {
+        container.innerHTML = `<p class="courts-empty-msg">Selecciona las fechas del torneo para configurar los horarios.</p>`;
+        return;
+    }
+
+    const startH = parseInt(globalStart.split(':')[0]);
+    const endH = parseInt(globalEnd.split(':')[0]);
+
     courts.forEach((court, i) => {
         const box = document.createElement('div');
         box.className = 'court-box';
 
-        let slotsHtml = `<div class="time-slot">
-            ${buildTimeSelect(court.start, 'c-start time-select', `data-idx="${i}"`)}
-            <span class="time-sep">a</span>
-            ${buildTimeSelect(court.end, 'c-end time-select', `data-idx="${i}"`)}
-        </div>`;
+        let daysHtml = '';
+        tournamentDays.forEach(day => {
+            const dayData = court.daily[day];
+            if (!dayData) return;
 
-        court.exceptions.forEach((exc, eIdx) => {
-            slotsHtml += `<div class="time-slot exception">
-                <input type="date" value="${exc.date}" class="e-date" data-idx="${i}" data-eidx="${eIdx}">
-                ${buildTimeSelect(exc.start, 'e-start time-select', `data-idx="${i}" data-eidx="${eIdx}"`)}
-                <span class="time-sep">a</span>
-                ${buildTimeSelect(exc.end, 'e-end time-select', `data-idx="${i}" data-eidx="${eIdx}"`)}
-                <button class="btn-remove-exc" onclick="removeException(${i}, ${eIdx})">X</button>
+            const isActive = dayData.active;
+            const isExpanded = dayData.expanded;
+
+            // Horas visibles según modo expandido o no
+            const visibleHours = [];
+            if (isExpanded) {
+                for (let h = 8; h <= 22; h++) visibleHours.push(`${String(h).padStart(2, '0')}:00`);
+            } else {
+                for (let h = startH; h < endH; h++) visibleHours.push(`${String(h).padStart(2, '0')}:00`);
+            }
+
+            const chipsHtml = visibleHours.map(hour => {
+                const isOn = dayData.slots[hour] ?? false;
+                return `<button
+                    class="slot-chip ${isOn ? 'active' : 'inactive'}"
+                    onclick="toggleSlot(${i}, '${day}', '${hour}')"
+                    ${!isActive ? 'disabled' : ''}
+                    title="${hour}"
+                >${hour}</button>`;
+            }).join('');
+
+            const expandLabel = isExpanded ? dict.hideExtraHours : dict.showAllHours;
+
+            daysHtml += `
+            <div class="day-row${!isActive ? ' disabled' : ''}">
+                <label class="day-toggle-label">
+                    <input type="checkbox" class="day-toggle"
+                        ${isActive ? 'checked' : ''}
+                        onchange="toggleDayActive(${i}, '${day}')">
+                    <span class="day-name">${formatearFechaLocal(day)}</span>
+                </label>
+                <div class="chips-strip">
+                    ${chipsHtml}
+                    <button class="expand-btn" onclick="toggleExpanded(${i}, '${day}')">${expandLabel}</button>
+                </div>
             </div>`;
         });
 
         box.innerHTML = `
             <div class="court-header">
                 <span>${dict.court} ${i + 1}</span>
-                <button onclick="addException(${i})">${dict.addException}</button>
             </div>
             <div class="time-slots">
-                ${slotsHtml}
+                ${daysHtml}
             </div>
         `;
         container.appendChild(box);
     });
-
-    // Attach listeners to sync values back to the array
-    document.querySelectorAll('.c-start').forEach(el => el.addEventListener('change', e => courts[e.target.dataset.idx].start = e.target.value));
-    document.querySelectorAll('.c-end').forEach(el => el.addEventListener('change', e => courts[e.target.dataset.idx].end = e.target.value));
-
-    document.querySelectorAll('.e-date').forEach(el => el.addEventListener('change', e => courts[e.target.dataset.idx].exceptions[e.target.dataset.eidx].date = e.target.value));
-    document.querySelectorAll('.e-start').forEach(el => el.addEventListener('change', e => courts[e.target.dataset.idx].exceptions[e.target.dataset.eidx].start = e.target.value));
-    document.querySelectorAll('.e-end').forEach(el => el.addEventListener('change', e => courts[e.target.dataset.idx].exceptions[e.target.dataset.eidx].end = e.target.value));
 }
 
 document.getElementById('num-courts').addEventListener('change', (e) => {
     const num = parseInt(e.target.value) || 1;
-    // Adjust array size
     if (num > courts.length) {
         for (let i = courts.length; i < num; i++) {
-            courts.push({ start: '17:00', end: '21:00', exceptions: [] });
+            const newCourt = { daily: {} };
+            tournamentDays.forEach(day => {
+                newCourt.daily[day] = {
+                    active: true,
+                    expanded: false,
+                    slots: getBaseSlots(globalStart, globalEnd)
+                };
+            });
+            courts.push(newCourt);
         }
     } else {
         courts = courts.slice(0, num);
@@ -261,26 +436,22 @@ document.getElementById('num-courts').addEventListener('change', (e) => {
     renderCourts();
 });
 
-// Init first court
-courts.push({ start: '17:00', end: '21:00', exceptions: [] });
-renderCourts();
-
-function addException(idx) {
-    courts[idx].exceptions.push({ date: '', start: '18:00', end: '19:00' });
-    renderCourts();
-}
-
-function removeException(idx, eIdx) {
-    courts[idx].exceptions.splice(eIdx, 1);
-    renderCourts();
-}
-
 document.getElementById('btn-apply-batch').addEventListener('click', () => {
-    const s = document.getElementById('batch-start-time').value;
-    const e = document.getElementById('batch-end-time').value;
-    courts.forEach(c => { c.start = s; c.end = e; });
+    globalStart = document.getElementById('batch-start-time').value;
+    globalEnd = document.getElementById('batch-end-time').value;
+    // Resetear TODOS los slots de todas las pistas y días
+    courts.forEach(court => {
+        tournamentDays.forEach(day => {
+            if (court.daily[day]) {
+                court.daily[day].slots = getBaseSlots(globalStart, globalEnd);
+                court.daily[day].expanded = false;
+            }
+        });
+    });
     renderCourts();
 });
+
+renderCourts(); // Render inicial (vacío hasta seleccionar fechas)
 
 // --- Logic algorithm ---
 function splitNames(str) {
@@ -434,54 +605,36 @@ document.getElementById('btn-generate-seeds').addEventListener('click', () => {
     document.getElementById('btn-generate-draws').disabled = false;
 });
 
-// LOGICA DE GENERAR CUADROS Y PISTAS
+// LÓGICA DE GENERAR CUADROS Y PISTAS
 function buildHorariosPorPista(courtsConfigs) {
-    const dates = window.datePicker.selectedDates;
-    if (!dates || dates.length === 0) return [];
-
-    let startDate = dates[0];
-    let endDate = dates.length > 1 ? dates[1] : dates[0];
+    if (tournamentDays.length === 0) return [];
 
     const horariosPorPista = [];
-
-    const days = [];
-    let current = new Date(startDate);
-    while (current <= endDate) {
-        days.push(new Date(current));
-        current.setDate(current.getDate() + 1);
-    }
 
     courtsConfigs.forEach((court, idx) => {
         const name = `Pista ${idx + 1}`;
         const horarios = [];
 
-        days.forEach(day => {
-            const dateStr = day.getFullYear() + "-" + String(day.getMonth() + 1).padStart(2, '0') + "-" + String(day.getDate()).padStart(2, '0');
-            const exception = court.exceptions.find(exc => exc.date === dateStr);
-            const startStr = exception ? exception.start : court.start;
-            const endStr = exception ? exception.end : court.end;
+        tournamentDays.forEach(dayStr => {
+            const dayData = court.daily[dayStr];
+            if (!dayData || !dayData.active) return;
 
-            if (startStr && endStr) {
-                const startHour = parseInt(startStr.split(':')[0]);
-                const startMin = parseInt(startStr.split(':')[1]);
-                const endHour = parseInt(endStr.split(':')[0]);
-                const endMin = parseInt(endStr.split(':')[1]);
+            // Recoger slots activos y ordenarlos cronológicamente
+            const activeHours = Object.entries(dayData.slots)
+                .filter(([, active]) => active)
+                .map(([hour]) => hour)
+                .sort();
 
-                let slotCurrent = new Date(day);
-                slotCurrent.setHours(startHour, startMin, 0, 0);
-
-                let slotEnd = new Date(day);
-                slotEnd.setHours(endHour, endMin, 0, 0);
-
-                while (slotCurrent < slotEnd) {
-                    horarios.push(slotCurrent.toISOString());
-                    slotCurrent.setHours(slotCurrent.getHours() + 1);
-                }
-            }
+            activeHours.forEach(hourStr => {
+                // hourStr ya viene en formato "HH:00" y dayStr en "YYYY-MM-DD"
+                // Concatenamos formando un ISO 8601 estricto sin indicador de timezone
+                horarios.push(`${dayStr}T${hourStr}:00`);
+            });
         });
 
-        horariosPorPista.push({ pista: name, horarios: horarios });
+        horariosPorPista.push({ pista: name, horarios });
     });
+
     return horariosPorPista;
 }
 

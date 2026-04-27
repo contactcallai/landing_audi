@@ -281,7 +281,7 @@ select.time-select:focus {
   color: var(--text-secondary);
 }
 
-/* Courts Container */
+/* Courts Container - Flexbox Dinámico (Max 3 columnas) */
 .courts-container {
   display: flex;
   flex-wrap: wrap;
@@ -293,8 +293,34 @@ select.time-select:focus {
   border: 1px solid var(--border-color);
   border-radius: 8px;
   padding: 1rem;
-  min-width: 250px;
-  flex: 1;
+
+  /* EL NÚCLEO MATEMÁTICO:
+     1 = flex-grow (Permite que crezca para llenar huecos si hay 1 o 2 pistas)
+     1 = flex-shrink (Permite que se encoja en móviles)
+     calc(...) = flex-basis (Establece un ancho ideal de 1/3 del contenedor menos el gap. 
+                 Al ser del 33.33%, es físicamente imposible que quepan 4 en una fila).
+  */
+  flex: 1 1 calc(33.333% - 1rem);
+
+  /* Evita que se aplasten demasiado en pantallas pequeñas, forzando el salto de línea */
+  min-width: 280px;
+}
+
+/* Diseño adaptativo (Responsive) */
+@media (max-width: 1024px) {
+
+  /* En tablets o pantallas medianas, bajamos a 2 columnas */
+  .courts-container {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 650px) {
+
+  /* En móviles, bajamos a 1 columna */
+  .courts-container {
+    grid-template-columns: 1fr;
+  }
 }
 
 .court-header {
@@ -859,4 +885,197 @@ span.flatpickr-weekday {
 
 .team.bye::before {
   display: none;
+}
+
+/* Contenedor de horario general */
+.batch-controls {
+  display: flex;
+  flex-wrap: wrap;
+  /* Permite bajar a la siguiente línea solo si es estrictamente necesario (móvil) */
+  align-items: center;
+  gap: 10px;
+  margin-top: 15px;
+}
+
+/* Forzamos que los selects y el botón no ocupen todo el ancho */
+.batch-controls .time-select {
+  width: auto !important;
+  min-width: 100px;
+  margin-bottom: 0;
+  /* Quitamos márgenes que puedan romper la línea */
+}
+
+.batch-controls .btn-secondary {
+  width: auto !important;
+  white-space: nowrap;
+  /* Evita que el texto del botón se parta en dos líneas */
+}
+
+.batch-controls .time-sep {
+  padding: 0 5px;
+  font-weight: 600;
+}
+
+/* En móviles muy pequeños, si realmente no caben, se apilarán de forma ordenada */
+@media (max-width: 480px) {
+  .batch-controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .batch-controls .time-select,
+  .batch-controls .btn-secondary {
+    width: 100% !important;
+  }
+
+  .batch-controls .time-sep {
+    /* Cambio clave: Pasamos de display: none a block para que se vea */
+    display: block;
+    text-align: center;
+    /* Lo centramos respecto a los selects */
+    margin: 5px 0;
+    /* Le damos un poco de respiro arriba y abajo */
+    width: 100%;
+  }
+}
+
+/* =====================================================
+   SISTEMA DE CHIPS HORARIOS — Disponibilidad de Pistas
+   ===================================================== */
+
+.courts-empty-msg {
+  color: var(--text-secondary);
+  font-style: italic;
+  padding: 1rem 0;
+}
+
+/* Fila de un día */
+.day-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.6rem 0.75rem;
+  border-radius: 8px;
+  background: var(--surface-color);
+  margin-bottom: 0.5rem;
+  transition: opacity 0.25s ease;
+}
+
+.day-row.disabled {
+  opacity: 0.38;
+}
+
+.day-row.disabled .chips-strip {
+  pointer-events: none;
+}
+
+/* Label del checkbox + nombre del día */
+.day-toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 110px;
+  cursor: pointer;
+  flex-shrink: 0;
+  padding-top: 0.15rem;
+}
+
+.day-toggle-label input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--accent-blue);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.day-name {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  text-transform: capitalize;
+  white-space: nowrap;
+}
+
+/* Contenedor de chips + botón expandir */
+.chips-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+  flex: 1;
+}
+
+/* ---- Chip base ---- */
+.slot-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.25rem 0.55rem;
+  border-radius: 20px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  font-family: var(--font-family);
+  cursor: pointer;
+  transition: background 0.18s ease, border-color 0.18s ease,
+    color 0.18s ease, transform 0.12s ease,
+    box-shadow 0.18s ease;
+  border: 1.5px solid transparent;
+  user-select: none;
+  line-height: 1;
+}
+
+/* Activo: fondo sólido accent-blue */
+.slot-chip.active {
+  background: var(--accent-blue);
+  color: #fff;
+  border-color: var(--accent-blue);
+  box-shadow: 0 0 6px rgba(0, 163, 255, 0.4);
+}
+
+.slot-chip.active:hover:not(:disabled) {
+  background: var(--accent-blue-hover);
+  border-color: var(--accent-blue-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 10px rgba(0, 163, 255, 0.5);
+}
+
+/* Inactivo: diseño ghost — hueco temporal */
+.slot-chip.inactive {
+  background: transparent;
+  color: var(--text-secondary);
+  border-color: #30363d;
+}
+
+.slot-chip.inactive:hover:not(:disabled) {
+  border-color: var(--accent-blue);
+  color: var(--accent-blue);
+  transform: translateY(-1px);
+}
+
+/* Deshabilitado (día inactivo) */
+.slot-chip:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+/* ---- Botón "Mostrar todas las horas" ---- */
+.expand-btn {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  font-family: var(--font-family);
+  cursor: pointer;
+  padding: 0.2rem 0.4rem;
+  border-radius: 4px;
+  white-space: nowrap;
+  transition: color 0.18s ease, background 0.18s ease;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+  flex-shrink: 0;
+}
+
+.expand-btn:hover {
+  color: var(--accent-blue);
+  background: rgba(0, 163, 255, 0.08);
 }
