@@ -25,8 +25,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 // Endpoint para general los cuadros con OpenAI
 app.post('/api/generar-cuadros', async (req, res) => {
     try {
-        const { horariosPorPista, inscripciones, cabezasDeSerie, formatos = {} } = req.body;
-
+        const { horariosPorPista, inscripciones, cabezasDeSerie, formatos, excepcionesEmparejamiento } = req.body;
         if (!horariosPorPista || !inscripciones) {
             return res.status(400).json({ error: "Faltan datos obligatorios para generar los cuadros." });
         }
@@ -45,7 +44,15 @@ app.post('/api/generar-cuadros', async (req, res) => {
             grupos[ins.grupo].push(ins);
         }
 
-        const cuadros = await generarPrimeraRonda(horariosPorPista, inscripciones, cabezasDeSerie, apiKey, formatos);
+        const cuadros = await generarPrimeraRonda(
+            horariosPorPista, 
+            inscripciones, 
+            cabezasDeSerie, 
+            process.env.OPENAI_API_KEY, 
+            formatos, 
+            1000, 
+            excepcionesEmparejamiento
+        );
         res.status(200).json(cuadros);
 
     } catch (error) {

@@ -40,7 +40,13 @@ const i18n = {
         seed1: "1r cap de sèrie",
         seed2: "2n cap de sèrie",
         seed3: "3r cap de sèrie",
-        seed4: "4t cap de sèrie"
+        seed4: "4t cap de sèrie",
+        rulesTitle: "Excepcions d'Emparellament (1a Ronda)",
+        ruleCat: "Categoria",
+        ruleP1: "Parella 1",
+        ruleP2: "Parella 2",
+        btnAddRule: "+ Afegir Excepció",
+        ruleError: "Selecciona parelles diferents.",
     },
     es: {
         pageTitle: "Generación de Cuadros Audi Padel Series",
@@ -82,7 +88,13 @@ const i18n = {
         seed1: "1r cabeza de serie",
         seed2: "2º cabeza de serie",
         seed3: "3r cabeza de serie",
-        seed4: "4º cabeza de serie"
+        seed4: "4º cabeza de serie",
+        rulesTitle: "Excepciones de Emparejamiento (1ª Ronda)",
+        ruleCat: "Categoría",
+        ruleP1: "Pareja 1",
+        ruleP2: "Pareja 2",
+        btnAddRule: "+ Añadir Excepción",
+        ruleError: "Selecciona parejas diferentes.",
     }
 };
 
@@ -120,6 +132,8 @@ function updateUI() {
     document.getElementById('btn-download-pdf').innerText = dict.btnDownloadPDF;
     document.getElementById('btn-view-categories').innerText = dict.viewCategories;
     document.getElementById('btn-view-schedule').innerText = dict.viewSchedule;
+    const rulesTitleEl = document.getElementById('txt-rules-title');
+    if (rulesTitleEl) rulesTitleEl.innerText = dict.rulesTitle;
 
     if (filesData.inscritos) {
         processInscriptions(filesData.inscritos);
@@ -140,6 +154,8 @@ document.getElementById('lang-switch').addEventListener('change', (e) => {
 // --- Variables Globales de Tiempo ---
 let tournamentDays = []; // Almacenará los días en formato estricto 'YYYY-MM-DD'
 let tournamentFormats = {}; // Guardará { "PRIMERA MASCULINA": "bracket", "SEGONA": "groups" }
+let pairsByCategory = {}; // Almacenará los arrays de nombres por categoría
+let matchExceptions = []; // Almacenará las reglas creadas
 
 // Función constructora actualizada
 function initDatePicker(preserveDates = null) {
@@ -686,20 +702,28 @@ function processInscriptions(data) {
 
     const categories = {};
     let totalValidPairs = 0;
+    
+    pairsByCategory = {}; // Reset
 
     data.forEach(row => {
         const cat = row.grupo || row.Grupo || row.GRUPO || 'Sense Categoria';
         const name = (row.nombre || row.Nombre || row.NOMBRE || '').toString().trim();
 
-        // Evitar contar filas vacías
         if (name !== '' && name !== 'Sense Nom') {
             if (!categories[cat]) categories[cat] = 0;
+            if (!pairsByCategory[cat]) pairsByCategory[cat] = [];
+            
             categories[cat]++;
+            pairsByCategory[cat].push(name);
             totalValidPairs++;
         }
     });
 
     renderInscriptionsSummary(categories, totalValidPairs);
+    
+    // Iniciar UI de reglas
+    populateRulesCategories();
+    document.getElementById('matchup-rules-section').classList.remove('hidden');
 }
 
 function renderInscriptionsSummary(categories, totalPairs) {
@@ -820,7 +844,8 @@ document.getElementById('btn-generate-draws').addEventListener('click', async ()
             horariosPorPista,
             inscripciones,
             cabezasDeSerie,
-            formatos: tournamentFormats
+            formatos: tournamentFormats,
+            excepcionesEmparejamiento: matchExceptions
         });
 
         const cuadros = response.data;
@@ -1139,5 +1164,76 @@ document.getElementById('btn-view-schedule').addEventListener('click', function 
     document.getElementById('draws-container').classList.add('hidden');
     document.getElementById('btn-download-pdf').classList.add('hidden');
 });
+
+function populateRulesCategories() {
+    const catSelect = document.getElementById('rule-category');
+    catSelect.innerHTML = '<option value="">-- Categoría --</option>';
+    
+    Object.keys(pairsByCategory).sort().forEach(cat => {
+        catSelect.innerHTML += `<option value="${cat}">${cat}</option>`;
+    });
+
+    catSelect.addEventListener('change', populateRulesPairs);
+}
+
+function populateRulesPairs() {
+    const cat = document.getElementById('rule-category').value;
+    const p1Select = document.getElementById('rule-pair1');
+    const p2Select = document.getElementById('rule-pair2');
+    
+    p1Select.innerHTML = '<option value="">-- Pareja 1 --</option>';
+    p2Select.innerHTML = '<option value="">-- Pareja 2 --</option>';
+
+    if (cat && pairsByCategory[cat]) {
+        p1Select.disabled = false;
+        p2Select.disabled = false;
+        const pairs = pairsByCategory[cat].sort();
+        pairs.forEach(p => {
+            p1Select.innerHTML += `<option value="${p}">${p}</option>`;
+            p2Select.innerHTML += `<option value="${p}">${p}</option>`;
+        });
+    } else {
+        p1Select.disabled = true;
+        p2Select.disabled = true;
+    }
+}
+
+document.getElementById('btn-add-rule').addEventListener('click', () => {
+    const cat = document.getElementById('rule-category').value;
+    const p1 = document.getElementById('rule-pair1').value;
+    const p2 = document.getElementById('rule-pair2').value;
+
+    if (!cat || !p1 || !p2) return;
+    if (p1 === p2) {
+        alert(i18n[currentLang].ruleError || "Error: Mismas parejas");
+        return;
+    }
+
+    // Evitar duplicados (A vs B = B vs A)
+    const exists = matchExceptions.find(r => r.cat === cat && ((r.p1 === p1 && r.p2 === p2) || (r.p1 === p2 && r.p2 === p1)));
+    if (exists) return;
+
+    matchExceptions.push({ id: Date.now(), cat, p1, p2 });
+    renderRulesList();
+});
+
+window.removeRule = function(id) {
+    matchExceptions = matchExceptions.filter(r => r.id !== id);
+    renderRulesList();
+};
+
+function renderRulesList() {
+    const list = document.getElementById('rules-list');
+    list.innerHTML = '';
+    matchExceptions.forEach(rule => {
+        list.innerHTML += `
+            <div class="rule-chip">
+                <span class="rule-chip-cat">${rule.cat}</span>
+                <span class="rule-chip-teams">${rule.p1} <span class="vs-text">vs</span> ${rule.p2}</span>
+                <button class="rule-chip-delete" onclick="removeRule(${rule.id})">&times;</button>
+            </div>
+        `;
+    });
+}
 
 updateUI();

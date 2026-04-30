@@ -9,6 +9,40 @@ if (typeof require !== 'undefined') {
     axios = window.axios;
 }
 
+// --- SISTEMA DE CACHÉ PERSISTENTE ---
+let fs, path, crypto;
+let restriccionesCache = {};
+const isNode = typeof require !== 'undefined' && typeof window === 'undefined';
+
+if (isNode) {
+    fs = require('fs');
+    path = require('path');
+    crypto = require('crypto');
+
+    const CACHE_FILE = path.join(__dirname, 'ia_cache_restricciones.json');
+
+    // 1. Cargar caché desde el disco al arrancar el servidor
+    if (fs.existsSync(CACHE_FILE)) {
+        try {
+            const rawData = fs.readFileSync(CACHE_FILE, 'utf8');
+            restriccionesCache = JSON.parse(rawData);
+            console.log(`[Caché IA] Cargadas ${Object.keys(restriccionesCache).length} configuraciones desde el disco.`);
+        } catch (e) {
+            console.error("Error leyendo archivo de caché:", e);
+        }
+    }
+
+    // 2. Exponemos la función de guardado
+    global.guardarCacheIA = function () {
+        try {
+            fs.writeFileSync(CACHE_FILE, JSON.stringify(restriccionesCache, null, 2), 'utf8');
+        } catch (e) {
+            console.error("Error escribiendo en archivo de caché:", e);
+        }
+    };
+}
+// ------------------------------------
+
 // NUEVA FUNCIÓN EVALUADORA: Evalúa un único partido en una fecha/hora concreta
 function evaluarPartidoUnico(j1, j2, fechaHoraString, restriccionesCat) {
     let imp = 0;
@@ -66,7 +100,7 @@ function evaluarPartidoUnico(j1, j2, fechaHoraString, restriccionesCat) {
     return { imp, pen };
 }
 
-async function generarPrimeraRonda(horariosPorPista, inscripciones, cabezasDeSerie = {}, apiKey, formatos = {}, intentos = 1000) {
+async function generarPrimeraRonda(horariosPorPista, inscripciones, cabezasDeSerie = {}, apiKey, formatos = {}, intentos = 1000, excepcionesEmparejamiento = []) {
     const grupos = {};
     const categoriasIA = {};
     const observacionesIA = {};
@@ -86,12 +120,33 @@ async function generarPrimeraRonda(horariosPorPista, inscripciones, cabezasDeSer
     }
 
     const prompt = construirPromptAnalisisTodas(categoriasIA, observacionesIA, {});
-    const restriccionesJSON = await callOpenAI(prompt, apiKey);
 
-    // Auditoría en terminal de la respuesta de la IA
-    console.log("\n=== RESTRICCIONES DETECTADAS POR LA IA ===");
-    console.log(JSON.stringify(restriccionesJSON, null, 2));
-    console.log("==========================================\n");
+    let restriccionesJSON;
+
+    // Solo aplicamos caché persistente si estamos corriendo en Node (backend)
+    if (isNode) {
+        // Crear un hash criptográfico corto y único del prompt
+        const promptHash = crypto.createHash('sha256').update(prompt).digest('hex');
+
+        if (restriccionesCache[promptHash]) {
+            console.log("\n=== ⚡ USANDO CACHÉ PERSISTENTE: Restricciones recuperadas del disco ===");
+            restriccionesJSON = restriccionesCache[promptHash];
+        } else {
+            restriccionesJSON = await callOpenAI(prompt, apiKey);
+
+            if (Object.keys(restriccionesJSON).length > 0) {
+                restriccionesCache[promptHash] = restriccionesJSON;
+                global.guardarCacheIA(); // Escribir en el disco inmediatamente
+            }
+
+            console.log("\n=== 🤖 RESTRICCIONES DETECTADAS POR LA IA ===");
+            console.log(JSON.stringify(restriccionesJSON, null, 2));
+            console.log("==========================================\n");
+        }
+    } else {
+        // Fallback de seguridad si se ejecuta en navegador (no debería ocurrir)
+        restriccionesJSON = await callOpenAI(prompt, apiKey);
+    }
 
     const slotsDisponibles = [];
     for (const datosPista of horariosPorPista) {
@@ -108,6 +163,14 @@ async function generarPrimeraRonda(horariosPorPista, inscripciones, cabezasDeSer
     for (const [nombreGrupo, parejas] of Object.entries(grupos)) {
         const formato = formatos[nombreGrupo] || 'bracket';
         const restriccionesCat = restriccionesJSON[nombreGrupo] || {};
+
+        // NUEVO: Aislar reglas para esta categoría y construir el evaluador booleano
+        const excepcionesCat = excepcionesEmparejamiento.filter(e => e.cat === nombreGrupo);
+        const esCruceProhibido = (p1, p2) => {
+            return excepcionesCat.some(e =>
+                (e.p1 === p1 && e.p2 === p2) || (e.p1 === p2 && e.p2 === p1)
+            );
+        };
 
         let mejorCuadroGrupo = null;
         let mejorScoreGlobal = { imp: Infinity, pen: Infinity };
@@ -179,6 +242,15 @@ async function generarPrimeraRonda(horariosPorPista, inscripciones, cabezasDeSer
                     const partido = { pareja1: j1.nombre, pareja2: j2.nombre, esBye };
 
                     if (!esBye) {
+                        // NUEVO: Cortafuegos de emparejamiento. Destruye la permutación actual.
+                        if (esCruceProhibido(j1.nombre, j2.nombre)) {
+                            partido.error = "Cruce prohibido por el organizador";
+                            scoreIntento.imp += 1;
+                            scoreIntento.pen += 500000; // Penalización insalvable
+                            partidosIntento.push(partido);
+                            continue; // Aborta la búsqueda de slots para ahorrar CPU
+                        }
+
                         let mejorSlot = null;
                         let mejorScoreSlot = { imp: Infinity, pen: Infinity };
                         let indiceMejorSlot = -1;
@@ -234,7 +306,10 @@ async function generarPrimeraRonda(horariosPorPista, inscripciones, cabezasDeSer
             let todosLosPartidos = [];
             for (let i = 0; i < parejas.length; i++) {
                 for (let j = i + 1; j < parejas.length; j++) {
-                    todosLosPartidos.push({ pareja1: parejas[i], pareja2: parejas[j], esBye: false });
+                    // NUEVO: Si existe una excepción, se elimina de la matriz de la liga
+                    if (!esCruceProhibido(parejas[i].nombre, parejas[j].nombre)) {
+                        todosLosPartidos.push({ pareja1: parejas[i], pareja2: parejas[j], esBye: false });
+                    }
                 }
             }
 
@@ -252,9 +327,9 @@ async function generarPrimeraRonda(horariosPorPista, inscripciones, cabezasDeSer
                 let slotsUsadosVirtualmente = new Set();
                 let scoreIntento = { imp: 0, pen: 0 };
 
-                // Mapeo estricto para evitar que un equipo juegue dos veces a la misma hora
-                let bloqueosHorariosEquipos = {};
-                parejas.forEach(p => bloqueosHorariosEquipos[p.nombre] = new Set());
+                // Mapeo estricto para evitar que un equipo juegue más de un partido AL DÍA
+                let bloqueosDiasEquipos = {};
+                parejas.forEach(p => bloqueosDiasEquipos[p.nombre] = new Set());
 
                 for (const matchBase of intento_orden) {
                     const partido = { pareja1: matchBase.pareja1.nombre, pareja2: matchBase.pareja2.nombre, esBye: false };
@@ -268,9 +343,12 @@ async function generarPrimeraRonda(horariosPorPista, inscripciones, cabezasDeSer
 
                         const slot = slotsDisponibles[s];
 
-                        // Control de colisión temporal
-                        if (bloqueosHorariosEquipos[partido.pareja1].has(slot.fechaHora) ||
-                            bloqueosHorariosEquipos[partido.pareja2].has(slot.fechaHora)) {
+                        // Extraemos solo el día (ej: "2026-01-20") de la fecha ISO
+                        const diaSlot = slot.fechaHora.split('T')[0];
+
+                        // Control de colisión diaria (Max 1 partido por día)
+                        if (bloqueosDiasEquipos[partido.pareja1].has(diaSlot) ||
+                            bloqueosDiasEquipos[partido.pareja2].has(diaSlot)) {
                             continue;
                         }
 
@@ -291,8 +369,10 @@ async function generarPrimeraRonda(horariosPorPista, inscripciones, cabezasDeSer
                         partido.slotIndex = indiceMejorSlot;
 
                         slotsUsadosVirtualmente.add(indiceMejorSlot);
-                        bloqueosHorariosEquipos[partido.pareja1].add(mejorSlot.fechaHora);
-                        bloqueosHorariosEquipos[partido.pareja2].add(mejorSlot.fechaHora);
+
+                        const diaAsignado = mejorSlot.fechaHora.split('T')[0];
+                        bloqueosDiasEquipos[partido.pareja1].add(diaAsignado);
+                        bloqueosDiasEquipos[partido.pareja2].add(diaAsignado);
 
                         scoreIntento.imp += mejorScoreSlot.imp;
                         scoreIntento.pen += mejorScoreSlot.pen;

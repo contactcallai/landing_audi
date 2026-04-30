@@ -97,6 +97,29 @@
             </div>
         </section>
 
+        <!-- Matchup Rules Section -->
+        <section id="matchup-rules-section" class="summary-section card hidden">
+            <h3 id="txt-rules-title">Excepciones de Emparejamiento (1ª Ronda)</h3>
+            
+            <div class="rules-controls">
+                <select id="rule-category" class="format-select">
+                    <option value="">-- Categoría --</option>
+                </select>
+                <select id="rule-pair1" class="format-select" disabled>
+                    <option value="">-- Pareja 1 --</option>
+                </select>
+                <span class="vs-text">vs</span>
+                <select id="rule-pair2" class="format-select" disabled>
+                    <option value="">-- Pareja 2 --</option>
+                </select>
+                <button id="btn-add-rule" class="btn-secondary">+ Añadir</button>
+            </div>
+
+            <div id="rules-list" class="rules-list-container">
+                <!-- Etiquetas generadas dinámicamente -->
+            </div>
+        </section>
+
         <!-- Resumen de Inscripciones (Oculto por defecto) -->
         <section id="inscriptions-summary-section" class="summary-section card hidden">
             <div class="summary-header">
