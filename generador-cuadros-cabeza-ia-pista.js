@@ -636,7 +636,16 @@ function fusionarRestricciones(nodo, restriccionesCat) {
  */
 function esTemporalmenteViable(fechaHoraHijo, fechaHoraPadre) {
     if (!fechaHoraPadre) return true;
-    return new Date(fechaHoraHijo).getTime() <= new Date(fechaHoraPadre).getTime() - MIN_DESCANSO_MS;
+    
+    // 1. Cronología básica: el hijo debe jugarse antes que el padre
+    if (new Date(fechaHoraHijo).getTime() > new Date(fechaHoraPadre).getTime() - MIN_DESCANSO_MS) return false;
+    
+    // 2. Máximo 1 partido por día por pareja: hijo y padre no pueden ser el mismo día natural
+    const strDiaHijo = fechaHoraHijo.split('T')[0];
+    const strDiaPadre = fechaHoraPadre.split('T')[0];
+    if (strDiaHijo === strDiaPadre) return false;
+    
+    return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -694,9 +703,9 @@ function _backtrackNodo(nodo, slotsDisponibles, slotsOcupados, restriccionesCat,
 
     // Intentar cada slot en orden cronológico
     for (let i = 0; i < slotsDisponibles.length; i++) {
-        if (slotsOcupados.has(i)) continue;
-
         const slot = slotsDisponibles[i];
+        if (slotsOcupados.has(slot.slotIndex)) continue;
+
         const { valido, pen } = _evaluarSlotNodo(slot.fechaHora, dominios, fechaHoraPadre, ignorarBlandas);
 
         if (!valido) {
@@ -709,10 +718,10 @@ function _backtrackNodo(nodo, slotsDisponibles, slotsOcupados, restriccionesCat,
         }
 
         // Slot provisionalmente asignado
-        slotsOcupados.add(i);
+        slotsOcupados.add(slot.slotIndex);
         nodo.fechaHora = slot.fechaHora;
         nodo.pista = slot.pista;
-        nodo.slotIndex = i;
+        nodo.slotIndex = slot.slotIndex;
         nodo.penalizacion = (nodo.penalizacion || 0) + pen;
 
         // Recursión sobre hijos (el tiempo del padre para los hijos es el slot actual)
@@ -729,7 +738,7 @@ function _backtrackNodo(nodo, slotsDisponibles, slotsOcupados, restriccionesCat,
         if (hijosOk) return true;
 
         // Backtrack: deshacer asignación del nodo actual y de todos sus hijos
-        slotsOcupados.delete(i);
+        slotsOcupados.delete(slot.slotIndex);
         delete nodo.fechaHora;
         delete nodo.pista;
         delete nodo.slotIndex;
