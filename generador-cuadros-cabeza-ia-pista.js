@@ -11,7 +11,6 @@ if (typeof require !== 'undefined') {
 
 // --- SISTEMA DE CACHÉ PERSISTENTE ---
 let fs, path, crypto;
-let restriccionesCache = {};
 const isNode = typeof require !== 'undefined' && typeof window === 'undefined';
 
 if (isNode) {
@@ -19,14 +18,19 @@ if (isNode) {
     path = require('path');
     crypto = require('crypto');
 
+    // Inicializamos el objeto global explícitamente
+    if (typeof global.restriccionesCache === 'undefined') {
+        global.restriccionesCache = {};
+    }
+
     const CACHE_FILE = path.join(__dirname, 'ia_cache_restricciones.json');
 
     // 1. Cargar caché desde el disco al arrancar el servidor
     if (fs.existsSync(CACHE_FILE)) {
         try {
             const rawData = fs.readFileSync(CACHE_FILE, 'utf8');
-            restriccionesCache = JSON.parse(rawData);
-            console.log(`[Caché IA] Cargadas ${Object.keys(restriccionesCache).length} configuraciones desde el disco.`);
+            global.restriccionesCache = JSON.parse(rawData);
+            console.log(`[Caché IA] Cargadas ${Object.keys(global.restriccionesCache).length} configuraciones desde el disco.`);
         } catch (e) {
             console.error("Error leyendo archivo de caché:", e);
         }
@@ -35,7 +39,7 @@ if (isNode) {
     // 2. Exponemos la función de guardado
     global.guardarCacheIA = function () {
         try {
-            fs.writeFileSync(CACHE_FILE, JSON.stringify(restriccionesCache, null, 2), 'utf8');
+            fs.writeFileSync(CACHE_FILE, JSON.stringify(global.restriccionesCache, null, 2), 'utf8');
         } catch (e) {
             console.error("Error escribiendo en archivo de caché:", e);
         }
@@ -62,7 +66,13 @@ function evaluarPartidoUnico(j1, j2, fechaHoraString, restriccionesCat) {
     // 1. RESTRICCIONES DURAS
     let posible = true;
     for (const req of todasDuras) {
-        const afectaDia = (req.dia === "TODOS" || req.dia === diaSemanaTexto || req.dia === `${diaSemanaTexto}_MANANA` || req.dia === `${diaSemanaTexto}_TARDE`);
+        const afectaDia = (
+            req.dia === "TODOS" ||
+            req.dia === diaSemanaTexto ||
+            req.dia === `${diaSemanaTexto}_MANANA` ||
+            req.dia === `${diaSemanaTexto}_TARDE` ||
+            req.dia === fechaPartido.getDate() // <--- Soporte para días numéricos del mes
+        );
 
         if (req.tipo === "hora_minima" && afectaDia && horaPartidoTexto < req.hora) posible = false;
         if (req.tipo === "hora_maxima" && afectaDia && horaPartidoTexto > req.hora) posible = false;
@@ -81,7 +91,13 @@ function evaluarPartidoUnico(j1, j2, fechaHoraString, restriccionesCat) {
     } else {
         // 2. RESTRICCIONES BLANDAS
         for (const req of todasBlandas) {
-            const afectaDia = (req.dia === "TODOS" || req.dia === diaSemanaTexto || req.dia === `${diaSemanaTexto}_MANANA` || req.dia === `${diaSemanaTexto}_TARDE`);
+            const afectaDia = (
+                req.dia === "TODOS" ||
+                req.dia === diaSemanaTexto ||
+                req.dia === `${diaSemanaTexto}_MANANA` ||
+                req.dia === `${diaSemanaTexto}_TARDE` ||
+                req.dia === fechaPartido.getDate() // <--- Soporte para días numéricos del mes
+            );
             const peso = req.peso || 5;
 
             // Evaluaciones dependientes del día/hora
@@ -100,7 +116,7 @@ function evaluarPartidoUnico(j1, j2, fechaHoraString, restriccionesCat) {
     return { imp, pen };
 }
 
-async function generarPrimeraRonda(horariosPorPista, inscripciones, cabezasDeSerie = {}, apiKey, formatos = {}, intentos = 1000, excepcionesEmparejamiento = []) {
+async function generarPrimeraRonda(horariosPorPista, inscripciones, cabezasDeSerie = {}, apiKey, formatos = {}, intentos = 10000, excepcionesEmparejamiento = []) {
     const grupos = {};
     const categoriasIA = {};
     const observacionesIA = {};
@@ -128,14 +144,15 @@ async function generarPrimeraRonda(horariosPorPista, inscripciones, cabezasDeSer
         // Crear un hash criptográfico corto y único del prompt
         const promptHash = crypto.createHash('sha256').update(prompt).digest('hex');
 
-        if (restriccionesCache[promptHash]) {
+        // USAMOS EXPLÍCITAMENTE global.restriccionesCache
+        if (global.restriccionesCache[promptHash]) {
             console.log("\n=== ⚡ USANDO CACHÉ PERSISTENTE: Restricciones recuperadas del disco ===");
-            restriccionesJSON = restriccionesCache[promptHash];
+            restriccionesJSON = global.restriccionesCache[promptHash];
         } else {
             restriccionesJSON = await callOpenAI(prompt, apiKey);
 
             if (Object.keys(restriccionesJSON).length > 0) {
-                restriccionesCache[promptHash] = restriccionesJSON;
+                global.restriccionesCache[promptHash] = restriccionesJSON;
                 global.guardarCacheIA(); // Escribir en el disco inmediatamente
             }
 
@@ -144,7 +161,7 @@ async function generarPrimeraRonda(horariosPorPista, inscripciones, cabezasDeSer
             console.log("==========================================\n");
         }
     } else {
-        // Fallback de seguridad si se ejecuta en navegador (no debería ocurrir)
+        // Fallback
         restriccionesJSON = await callOpenAI(prompt, apiKey);
     }
 
@@ -191,7 +208,8 @@ async function generarPrimeraRonda(horariosPorPista, inscripciones, cabezasDeSer
                 restriccionesJSON,
                 bracketObj,
                 excepcionesEmparejamiento,
-                slotsGastadosGlobales
+                slotsGastadosGlobales,
+                intentos
             );
 
             mejorCuadroGrupo = resultadoCSP[nombreGrupo];
@@ -258,23 +276,26 @@ async function generarPrimeraRonda(horariosPorPista, inscripciones, cabezasDeSer
                         if (mejorScoreSlot.imp === 0 && mejorScoreSlot.pen === 0) break;
                     }
 
-                    if (mejorSlot) {
+                    // CORTAFUEGOS: Solo asignamos si el slot cumple TODAS las restricciones duras (imp === 0)
+                    if (mejorSlot && mejorScoreSlot.imp === 0) {
                         partido.fechaHora = mejorSlot.fechaHora;
                         partido.pista = mejorSlot.pista;
                         partido.slotIndex = indiceMejorSlot;
 
+                        if (formato === 'groups') {
+                            const diaAsignado = mejorSlot.fechaHora.split('T')[0];
+                            bloqueosDiasEquipos[partido.pareja1].add(diaAsignado);
+                            bloqueosDiasEquipos[partido.pareja2].add(diaAsignado);
+                        }
+
                         slotsUsadosVirtualmente.add(indiceMejorSlot);
-
-                        const diaAsignado = mejorSlot.fechaHora.split('T')[0];
-                        bloqueosDiasEquipos[partido.pareja1].add(diaAsignado);
-                        bloqueosDiasEquipos[partido.pareja2].add(diaAsignado);
-
-                        scoreIntento.imp += mejorScoreSlot.imp;
                         scoreIntento.pen += mejorScoreSlot.pen;
                     } else {
-                        partido.error = "No hay horarios disponibles.";
-                        scoreIntento.imp += 1000;
+                        // El partido no se puede programar. Se queda sin fecha/pista (TBD)
+                        partido.error = `Conflicto insalvable entre ${j1.nombre} y ${j2.nombre} o falta de pistas.`;
+                        scoreIntento.imp += 1000; // Castigamos el intento global fuertemente
                     }
+
                     partidosIntento.push(partido);
                 }
 
@@ -373,18 +394,18 @@ function construirPromptAnalisisTodas(categorias, observacionesCat) {
         "Primera Femenina": {
             "A": {
             "restricciones_duras": [
-                {"tipo": "hora_maxima", "dia": "TODOS|DIA_ESPECIFICO", "hora": "HH:MM", "razon": "explicación"},
-                {"tipo": "hora_minima", "dia": "TODOS|DIA_ESPECIFICO", "hora": "HH:MM", "razon": "explicación"},
+                {"tipo": "hora_maxima", "dia": "TODOS | LUNES | MARTES | MIERCOLES | JUEVES | VIERNES | SABADO | DOMINGO | <numero_dia>", "hora": "HH:MM", "razon": "explicación"},
+                {"tipo": "hora_minima", "dia": "TODOS | LUNES | MARTES | MIERCOLES | JUEVES | VIERNES | SABADO | DOMINGO | <numero_dia>", "hora": "HH:MM", "razon": "explicación"},
                 {"tipo": "hora_exacta", "dia": "DIA_ESPECIFICO", "hora": "HH:MM", "razon": "explicación"},
                 {"tipo": "dia_excluido", "dia": "DIA_ESPECIFICO", "razon": "explicación"},
                 {"tipo": "rango_fechas", "desde": "DIA", "hasta": "DIA", "razon": "explicación"}
             ],
             "restricciones_blandas": [
-                {"tipo": "hora_maxima", "dia": "TODOS|DIA_ESPECIFICO", "hora": "HH:MM", "peso": 1-10, "razon": "explicación"},
-                {"tipo": "hora_minima", "dia": "TODOS|DIA_ESPECIFICO", "hora": "HH:MM", "peso": 1-10, "razon": "explicación"},
+                {"tipo": "hora_maxima", "dia": "TODOS | LUNES | MARTES | MIERCOLES | JUEVES | VIERNES | SABADO | DOMINGO | <numero_dia>", "hora": "HH:MM", "peso": 1-10, "razon": "explicación"},
+                {"tipo": "hora_minima", "dia": "TODOS | LUNES | MARTES | MIERCOLES | JUEVES | VIERNES | SABADO | DOMINGO | <numero_dia>", "hora": "HH:MM", "peso": 1-10, "razon": "explicación"},
                 {"tipo": "hora_exacta", "dia": "DIA_ESPECIFICO", "hora": "HH:MM", "peso": 1-10, "razon": "explicación"},
-                {"tipo": "preferencia_temprano", "dia": "TODOS|DIA_ESPECIFICO", "peso": 1-10, "razon": "explicación"},
-                {"tipo": "preferencia_tarde", "dia": "TODOS|DIA_ESPECIFICO", "peso": 1-10, "razon": "explicación"},
+                {"tipo": "preferencia_temprano", "dia": "TODOS | LUNES | MARTES | MIERCOLES | JUEVES | VIERNES | SABADO | DOMINGO | <numero_dia>", "peso": 1-10, "razon": "explicación"},
+                {"tipo": "preferencia_tarde", "dia": "TODOS | LUNES | MARTES | MIERCOLES | JUEVES | VIERNES | SABADO | DOMINGO | <numero_dia>", "peso": 1-10, "razon": "explicación"},
                 {"tipo": "dia_preferido", "dia": "DIA_ESPECIFICO", "peso": 1-10, "razon": "explicación"},
                 {"tipo": "dia_evitar", "dia": "DIA_ESPECIFICO", "peso": 1-10, "razon": "explicación"}
             ],
@@ -418,6 +439,8 @@ function construirPromptAnalisisTodas(categorias, observacionesCat) {
         - Para el tipo "rango_fechas", las claves "desde" y "hasta" DEBEN ser obligatoriamente números enteros (del 1 al 31) representando el día del mes.
         - Nunca uses strings ni texto como "EN_ADELANTE" o "DIA_20". 
         - Si un rango no tiene límite superior (ej. "a partir del día 20"), el campo "hasta" debe ser estrictamente el valor primitivo null.
+        - El campo "dia" DEBE ser estrictamente uno de estos strings: "TODOS", "LUNES", "MARTES", "MIERCOLES", "JUEVES", "VIERNES", "SABADO", "DOMINGO".
+        - EXCEPCIÓN NUMÉRICA: Si el jugador especifica un día del mes concreto (ej. "Días 2 y 3" o "el día 15"), el campo "dia" DEBE ser un NÚMERO ENTERO (ej. 2, 3, 15). NUNCA generes strings inventados como "DIA_2" o "FIN_DE_SEMANA".
 
         AMBIGÜEDADES:
         - REGLA DE ORO: Las indicaciones de hora directas y concisas (ej. "Jugar a las 19", "A partir de las 18") SIN léxico de flexibilidad explícito ("si es posible", "mejor"), DEBEN considerarse SIEMPRE RESTRICCIONES DURAS. No asumas que es una preferencia a menos que el jugador lo indique claramente.
@@ -515,10 +538,6 @@ const MIN_DESCANSO_MS = 4 * 60 * 60 * 1000; // 4 horas en milisegundos
 // Utilidades puras
 // ---------------------------------------------------------------------------
 
-/**
- * Evalúa si un slot ISO-string viola una restricción dura concreta.
- * Retorna true si la restricción se viola (el slot es inválido).
- */
 function _violaRestriccionDura(req, fechaHoraString) {
     const fecha = new Date(fechaHoraString);
     const mapaDias = ["DOMINGO", "LUNES", "MARTES", "MIERCOLES", "JUEVES", "VIERNES", "SABADO"];
@@ -530,7 +549,8 @@ function _violaRestriccionDura(req, fechaHoraString) {
         req.dia === "TODOS" ||
         req.dia === diaSemana ||
         req.dia === `${diaSemana}_MANANA` ||
-        req.dia === `${diaSemana}_TARDE`
+        req.dia === `${diaSemana}_TARDE` ||
+        req.dia === diaNum
     );
 
     if (req.tipo === "hora_minima" && afectaDia && horaTexto < req.hora) return true;
@@ -544,15 +564,12 @@ function _violaRestriccionDura(req, fechaHoraString) {
     return false;
 }
 
-/**
- * Calcula la penalización blanda acumulada de un slot para un conjunto de
- * restricciones blandas.
- */
 function _penalizacionBlanda(restriccionesBlandas, fechaHoraString) {
     const fecha = new Date(fechaHoraString);
     const mapaDias = ["DOMINGO", "LUNES", "MARTES", "MIERCOLES", "JUEVES", "VIERNES", "SABADO"];
     const diaSemana = mapaDias[fecha.getDay()];
     const horaTexto = fecha.toTimeString().substring(0, 5);
+    const diaNum = fecha.getDate();
     let pen = 0;
 
     for (const req of restriccionesBlandas) {
@@ -560,7 +577,8 @@ function _penalizacionBlanda(restriccionesBlandas, fechaHoraString) {
             req.dia === "TODOS" ||
             req.dia === diaSemana ||
             req.dia === `${diaSemana}_MANANA` ||
-            req.dia === `${diaSemana}_TARDE`
+            req.dia === `${diaSemana}_TARDE` ||
+            req.dia === diaNum
         );
         const peso = req.peso || 5;
         if (req.tipo === "hora_minima" && afectaDia && horaTexto < req.hora) pen += peso;
@@ -568,8 +586,8 @@ function _penalizacionBlanda(restriccionesBlandas, fechaHoraString) {
         if (req.tipo === "hora_exacta" && afectaDia && horaTexto !== req.hora) pen += peso;
         if (req.tipo === "preferencia_tarde" && afectaDia && horaTexto < "16:00") pen += peso;
         if (req.tipo === "preferencia_temprano" && afectaDia && horaTexto >= "16:00") pen += peso;
-        if (req.tipo === "dia_evitar" && req.dia === diaSemana) pen += peso;
-        if (req.tipo === "dia_preferido" && req.dia !== "TODOS" && req.dia !== diaSemana) pen += peso;
+        if (req.tipo === "dia_evitar" && (req.dia === diaSemana || req.dia === diaNum)) pen += peso;
+        if (req.tipo === "dia_preferido" && req.dia !== "TODOS" && req.dia !== diaSemana && req.dia !== diaNum) pen += peso;
     }
     return pen;
 }
@@ -578,20 +596,10 @@ function _penalizacionBlanda(restriccionesBlandas, fechaHoraString) {
 // PASO 2 – Fusión de dominios (Domain Intersection)
 // ---------------------------------------------------------------------------
 
-/**
- * Recolecta y fusiona todas las restricciones duras y blandas de las
- * parejas de un nodo del bracket (hoja o nodo interno).
- *
- * @param {Object} nodo - Nodo del bracket con shape:
- *   { pareja1: string|null, pareja2: string|null, hijos: [nodo, nodo]|null }
- * @param {Object} restriccionesCat - Mapa pareja → { restricciones_duras, restricciones_blandas }
- * @returns {{ duras: Array, blandas: Array }}
- */
 function fusionarRestricciones(nodo, restriccionesCat) {
     const duras = [];
     const blandas = [];
 
-    // Recolección DFS de todas las parejas del subárbol
     const pila = [nodo];
     const parejasVistas = new Set();
 
@@ -627,108 +635,99 @@ function fusionarRestricciones(nodo, restriccionesCat) {
 // PASO 3 – Validación de Arc Consistency (holgura cronológica)
 // ---------------------------------------------------------------------------
 
-/**
- * Devuelve true si el slot hijo es temporalmente viable respecto al slot padre.
- * Regla: tiempoHijo <= tiempoPadre - MIN_DESCANSO_MS
- *
- * @param {string} fechaHoraHijo  - ISO string del slot candidato para el hijo
- * @param {string|null} fechaHoraPadre - ISO string del slot ya asignado al padre (null = sin restricción)
- */
 function esTemporalmenteViable(fechaHoraHijo, fechaHoraPadre) {
     if (!fechaHoraPadre) return true;
-    
-    // 1. Cronología básica: el hijo debe jugarse antes que el padre
+
+    // Cronología básica: el hijo debe jugarse antes que el padre
     if (new Date(fechaHoraHijo).getTime() > new Date(fechaHoraPadre).getTime() - MIN_DESCANSO_MS) return false;
-    
-    // 2. Máximo 1 partido por día por pareja: hijo y padre no pueden ser el mismo día natural
+
+    // Máximo 1 partido por día por pareja: hijo y padre no pueden ser el mismo día natural
     const strDiaHijo = fechaHoraHijo.split('T')[0];
     const strDiaPadre = fechaHoraPadre.split('T')[0];
     if (strDiaHijo === strDiaPadre) return false;
-    
+
     return true;
 }
 
 // ---------------------------------------------------------------------------
-// PASO 1 – Motor de backtracking top-down
+// PASO 1 – Motor de backtracking top-down con Espaciado Inteligente
 // ---------------------------------------------------------------------------
 
-/**
- * Evalúa si un slot es aceptable para un nodo dados sus dominios fusionados
- * y la restricción temporal del padre.
- *
- * @param {string}  fechaHoraSlot
- * @param {Object}  dominios          - { duras, blandas } del nodo
- * @param {string|null} fechaHoraPadre
- * @param {boolean} ignorarBlandas    - true en la segunda pasada de degradación
- * @returns {{ valido: boolean, pen: number }}
- */
-function _evaluarSlotNodo(fechaHoraSlot, dominios, fechaHoraPadre, ignorarBlandas) {
-    // Arc consistency
+function _evaluarSlotNodo(nodo, fechaHoraSlot, dominios, fechaHoraPadre, ignorarBlandas, diasValidosSemis) {
+    // --- CORTAFUEGOS DE SEMIFINALES ---
+    if (nodo.isSemifinal) {
+        const diaSlot = fechaHoraSlot.split('T')[0];
+        if (!diasValidosSemis.has(diaSlot)) {
+            return { valido: false, pen: Infinity };
+        }
+    }
+
     if (!esTemporalmenteViable(fechaHoraSlot, fechaHoraPadre)) {
         return { valido: false, pen: Infinity };
     }
 
-    // Restricciones duras
     for (const req of dominios.duras) {
         if (_violaRestriccionDura(req, fechaHoraSlot)) {
             return { valido: false, pen: Infinity };
         }
     }
 
-    // Restricciones blandas
     const pen = ignorarBlandas ? 0 : _penalizacionBlanda(dominios.blandas, fechaHoraSlot);
     return { valido: true, pen };
 }
 
-/**
- * Función recursiva de backtracking top-down.
- *
- * Asigna slots al árbol de nodos del bracket mediante DFS en profundidad:
- * primero ancla los nodos más profundos (hojas = Ronda 1), luego sube.
- *
- * @param {Object}   nodo            - Nodo actual del bracket
- * @param {Array}    slotsDisponibles - Array de { fechaHora, pista, slotIndex }
- * @param {Set}      slotsOcupados   - Índices de slots ya asignados (mutado in-place)
- * @param {Object}   restriccionesCat
- * @param {string|null} fechaHoraPadre - Restricción temporal del padre
- * @param {boolean}  ignorarBlandas
- * @returns {boolean} true si la rama entera fue asignada con éxito
- */
-function _backtrackNodo(nodo, slotsDisponibles, slotsOcupados, restriccionesCat, fechaHoraPadre, ignorarBlandas) {
-    // Nodo fantasma (BYE): no necesita slot, siempre válido
+function _backtrackNodo(nodo, slotsDisponibles, slotsOcupados, restriccionesCat, fechaHoraPadre, ignorarBlandas, diasValidosSemis, contextoTorneo) {
     if (nodo.esBye) return true;
 
-    // Hojas (partidos reales sin hijos pendientes): asignar slot directamente
     const dominios = fusionarRestricciones(nodo, restriccionesCat);
+    const candidatos = [];
 
-    // Intentar cada slot en orden cronológico
+    // Evaluar slots y calcular su desviación respecto a la "fecha ideal" (Espaciado Inteligente)
     for (let i = 0; i < slotsDisponibles.length; i++) {
         const slot = slotsDisponibles[i];
         if (slotsOcupados.has(slot.slotIndex)) continue;
 
-        const { valido, pen } = _evaluarSlotNodo(slot.fechaHora, dominios, fechaHoraPadre, ignorarBlandas);
+        const { valido, pen } = _evaluarSlotNodo(nodo, slot.fechaHora, dominios, fechaHoraPadre, ignorarBlandas, diasValidosSemis);
+        if (!valido) continue;
 
-        if (!valido) {
-            // Poda: si ya pasamos el tiempo máximo permitido, no tiene sentido seguir
-            // (los slots están ordenados cronológicamente)
-            if (fechaHoraPadre && new Date(slot.fechaHora).getTime() < new Date(fechaHoraPadre).getTime() - MIN_DESCANSO_MS * 10) {
-                continue; // Seguir buscando slots posteriores
-            }
-            continue;
+        let penaltyEspaciado = 0;
+        if (contextoTorneo && contextoTorneo.rondasTotal > 1) {
+            const ratio = nodo.ronda / (contextoTorneo.rondasTotal - 1);
+            const idealMs = contextoTorneo.startMs + (contextoTorneo.endMs - contextoTorneo.startMs) * ratio;
+            const slotMs = new Date(slot.fechaHora).getTime();
+
+            // Penalizamos (3 puntos) por cada día de desviación de su fecha ideal
+            const diffDias = Math.abs(slotMs - idealMs) / (1000 * 60 * 60 * 24);
+            penaltyEspaciado = diffDias * 3;
         }
 
-        // Slot provisionalmente asignado
+        candidatos.push({
+            slot: slot,
+            penTotal: pen + penaltyEspaciado,
+            penOriginal: pen
+        });
+    }
+
+    // Ordenar de mejor a peor: El DFS probará primero los huecos más óptimos
+    candidatos.sort((a, b) => {
+        if (a.penTotal !== b.penTotal) return a.penTotal - b.penTotal;
+        if (nodo.ronda > 0) return b.slot.slotIndex - a.slot.slotIndex;
+        return a.slot.slotIndex - b.slot.slotIndex;
+    });
+
+    for (const candidato of candidatos) {
+        const slot = candidato.slot;
+
         slotsOcupados.add(slot.slotIndex);
         nodo.fechaHora = slot.fechaHora;
         nodo.pista = slot.pista;
         nodo.slotIndex = slot.slotIndex;
-        nodo.penalizacion = (nodo.penalizacion || 0) + pen;
+        nodo.penalizacion = (nodo.penalizacion || 0) + candidato.penOriginal;
 
-        // Recursión sobre hijos (el tiempo del padre para los hijos es el slot actual)
         let hijosOk = true;
         if (nodo.hijos && nodo.hijos.length > 0) {
             for (const hijo of nodo.hijos) {
-                if (!_backtrackNodo(hijo, slotsDisponibles, slotsOcupados, restriccionesCat, slot.fechaHora, ignorarBlandas)) {
+                if (!_backtrackNodo(hijo, slotsDisponibles, slotsOcupados, restriccionesCat, slot.fechaHora, ignorarBlandas, diasValidosSemis, contextoTorneo)) {
                     hijosOk = false;
                     break;
                 }
@@ -737,7 +736,6 @@ function _backtrackNodo(nodo, slotsDisponibles, slotsOcupados, restriccionesCat,
 
         if (hijosOk) return true;
 
-        // Backtrack: deshacer asignación del nodo actual y de todos sus hijos
         slotsOcupados.delete(slot.slotIndex);
         delete nodo.fechaHora;
         delete nodo.pista;
@@ -746,12 +744,9 @@ function _backtrackNodo(nodo, slotsDisponibles, slotsOcupados, restriccionesCat,
         _limpiarSubarbol(nodo.hijos, slotsOcupados);
     }
 
-    return false; // No hay slot viable en este dominio
+    return false;
 }
 
-/**
- * Limpia recursivamente las asignaciones de un subárbol tras un backtrack.
- */
 function _limpiarSubarbol(hijos, slotsOcupados) {
     if (!hijos) return;
     for (const hijo of hijos) {
@@ -767,18 +762,13 @@ function _limpiarSubarbol(hijos, slotsOcupados) {
 }
 
 // ---------------------------------------------------------------------------
-// Constructores de árbol de bracket
+// Constructores de árbol de bracket (Dinámico: Omite la final automáticamente)
 // ---------------------------------------------------------------------------
 
-/**
- * Construye un árbol de nodos de bracket a partir de un array plano de
- * parejas (ya ordenado con BYEs) para hasta 3 rondas.
- */
 function construirArbolBracket(bracketBase, esCruceProhibido) {
     const numParejas = bracketBase.length;
 
-    // Ronda 1: nodos hoja
-    const r1 = [];
+    let rondaActual = [];
     for (let i = 0; i < numParejas; i += 2) {
         const p1 = bracketBase[i];
         const p2 = bracketBase[i + 1] || { nombre: "Fantasma (BYE)", esBye: true };
@@ -795,8 +785,7 @@ function construirArbolBracket(bracketBase, esCruceProhibido) {
             ganadorConocido = p1.nombre;
         }
 
-        r1.push({
-            id: `R1_${i / 2}`,
+        rondaActual.push({
             ronda: 0,
             pareja1: p1.nombre,
             pareja2: p2.nombre,
@@ -808,75 +797,55 @@ function construirArbolBracket(bracketBase, esCruceProhibido) {
         });
     }
 
-    if (r1.length <= 1) return r1; // Solo hay un partido (2 parejas)
+    const rondas = [rondaActual];
+    let numRonda = 1;
 
-    // Ronda 2 (Cuartos de Final)
-    const r2 = [];
-    for (let i = 0; i < r1.length; i += 2) {
-        const hijoA = r1[i];
-        const hijoB = r1[i + 1];
-        if (!hijoB) { r2.push(hijoA); continue; }
+    while (rondaActual.length > 1) {
+        const siguienteRonda = [];
+        for (let i = 0; i < rondaActual.length; i += 2) {
+            const hijoA = rondaActual[i];
+            const hijoB = rondaActual[i + 1];
 
-        let ganadorConocido = null;
-        const esFantasma = hijoA.esFantasma && hijoB.esFantasma;
-        if (esFantasma) {
-            ganadorConocido = "Fantasma (BYE)";
-        } else if (hijoA.esFantasma) {
-            ganadorConocido = hijoB.ganadorConocido;
-        } else if (hijoB.esFantasma) {
-            ganadorConocido = hijoA.ganadorConocido;
+            if (!hijoB) {
+                siguienteRonda.push(hijoA);
+                continue;
+            }
+
+            let ganadorConocido = null;
+            const esFantasma = hijoA.esFantasma && hijoB.esFantasma;
+            if (esFantasma) {
+                ganadorConocido = "Fantasma (BYE)";
+            } else if (hijoA.esFantasma) {
+                ganadorConocido = hijoB.ganadorConocido;
+            } else if (hijoB.esFantasma) {
+                ganadorConocido = hijoA.ganadorConocido;
+            }
+
+            siguienteRonda.push({
+                ronda: numRonda,
+                pareja1: hijoA.ganadorConocido,
+                pareja2: hijoB.ganadorConocido,
+                esBye: hijoA.esFantasma || hijoB.esFantasma,
+                esFantasma,
+                ganadorConocido,
+                hijos: [hijoA, hijoB]
+            });
         }
-
-        r2.push({
-            id: `QF_${i / 2}`,
-            ronda: 1,
-            pareja1: hijoA.ganadorConocido,
-            pareja2: hijoB.ganadorConocido,
-            esBye: hijoA.esFantasma || hijoB.esFantasma,
-            esFantasma,
-            ganadorConocido,
-            hijos: [hijoA, hijoB]
-        });
+        rondas.push(siguienteRonda);
+        rondaActual = siguienteRonda;
+        numRonda++;
     }
 
-    if (r2.length <= 1) return r2;
-
-    // Ronda 3 (Semifinales)
-    const r3 = [];
-    for (let i = 0; i < r2.length; i += 2) {
-        const hijoA = r2[i];
-        const hijoB = r2[i + 1];
-        if (!hijoB) { r3.push(hijoA); continue; }
-
-        let ganadorConocido = null;
-        const esFantasma = hijoA.esFantasma && hijoB.esFantasma;
-        if (esFantasma) {
-            ganadorConocido = "Fantasma (BYE)";
-        } else if (hijoA.esFantasma) {
-            ganadorConocido = hijoB.ganadorConocido;
-        } else if (hijoB.esFantasma) {
-            ganadorConocido = hijoA.ganadorConocido;
-        }
-
-        r3.push({
-            id: `SF_${i / 2}`,
-            ronda: 2,
-            pareja1: hijoA.ganadorConocido,
-            pareja2: hijoB.ganadorConocido,
-            esBye: hijoA.esFantasma || hijoB.esFantasma,
-            esFantasma,
-            ganadorConocido,
-            hijos: [hijoA, hijoB]
-        });
+    // ELIMINAR LA FINAL: Devolvemos directamente las Semifinales
+    if (rondas.length >= 2) {
+        const semis = rondas[rondas.length - 2];
+        semis.forEach(s => s.isSemifinal = true);
+        return semis;
+    } else {
+        return [];
     }
-
-    return r3.length > 0 ? r3 : r2;
 }
 
-/**
- * Aplana el árbol de nodos a un array plano de partidos para el cuadro
- * (solo las hojas y nodos internos con datos suficientes).
- */
 function aplanarArbol(raices) {
     const resultado = [];
     const pila = [...raices];
@@ -885,7 +854,6 @@ function aplanarArbol(raices) {
         if (nodo.hijos) {
             for (const h of nodo.hijos) pila.push(h);
         }
-        // Nodo hoja (Ronda 1) o nodo interno ya procesado
         const partido = {
             pareja1: nodo.pareja1 || '(ganador anterior)',
             pareja2: nodo.pareja2 || '(ganador anterior)',
@@ -903,33 +871,38 @@ function aplanarArbol(raices) {
 }
 
 // ---------------------------------------------------------------------------
-// PASO 4 – Relajación dinámica (Degradation) + punto de entrada público
+// PUNTO DE ENTRADA PÚBLICO
 // ---------------------------------------------------------------------------
 
-/**
- * Motor CSP con Backtracking Top-Down para calendarización de brackets
- * eliminatorios de hasta 3 rondas.
- *
- * @param {Array}  slotsDisponibles  - [{ fechaHora: ISOString, pista: string, slotIndex: number }]
- *                                    Ya ordenados cronológicamente y con slotIndex explícito.
- * @param {Object} restriccionesJSON - { [categoria]: { [pareja]: { restricciones_duras, restricciones_blandas } } }
- * @param {Object} bracket           - { [categoria]: { parejas: Array<{nombre,esBye?}>, cabezasDeSerie?: string[] } }
- * @param {Array}  excepcionesEmparejamiento - [{ cat, p1, p2 }]
- * @param {Set}    [slotsGastadosGlobales]   - Set de índices ya consumidos por otras categorías
- * @returns {Object} { [categoria]: Array<Partido> }
- */
 function generarBracketCSP(
     slotsDisponibles,
     restriccionesJSON,
     bracket,
     excepcionesEmparejamiento = [],
-    slotsGastadosGlobales = new Set()
+    slotsGastadosGlobales = new Set(),
+    intentosMax = 1000
 ) {
-    // Garantizar que los slots tienen slotIndex
     const slots = slotsDisponibles.map((s, i) => ({
         ...s,
         slotIndex: s.slotIndex !== undefined ? s.slotIndex : i
     }));
+
+    // --- Extraer días válidos para las Semifinales dinámicamente ---
+    const diasTorneo = [...new Set(slots.map(s => s.fechaHora.split('T')[0]))].sort();
+    const diasValidosSemis = new Set();
+
+    // Ampliamos la ventana a los 3 últimos días útiles para evitar bloqueos por restricciones duras
+    if (diasTorneo.length >= 4) {
+        diasValidosSemis.add(diasTorneo[diasTorneo.length - 2]); // Penúltimo (Ej. Sábado)
+        diasValidosSemis.add(diasTorneo[diasTorneo.length - 3]); // Antepenúltimo (Ej. Viernes)
+        diasValidosSemis.add(diasTorneo[diasTorneo.length - 4]); // Válvula de escape (Ej. Jueves / Día 7)
+    } else if (diasTorneo.length === 3) {
+        diasValidosSemis.add(diasTorneo[diasTorneo.length - 2]);
+        diasValidosSemis.add(diasTorneo[diasTorneo.length - 3]);
+    } else {
+        diasTorneo.forEach(d => diasValidosSemis.add(d));
+    }
+    // ---------------------------------------------------------------
 
     const cuadro = {};
 
@@ -944,12 +917,11 @@ function generarBracketCSP(
                 (e.p1 === p1 && e.p2 === p2) || (e.p1 === p2 && e.p2 === p1)
             );
 
-        // Construir bracket base (mismo algoritmo de seed que el motor greedy)
         let numParejas = parejas.length;
         let potencia = 1;
         while (potencia < numParejas) potencia *= 2;
 
-        const bracketBase = new Array(potencia).fill(null);
+        const bracketBaseInmutable = new Array(potencia).fill(null);
         let parejasRestantes = [];
         let seed1 = null, seed2 = null;
 
@@ -959,8 +931,8 @@ function generarBracketCSP(
             else parejasRestantes.push(j);
         }
 
-        if (seed1) bracketBase[0] = seed1;
-        if (seed2) bracketBase[potencia - 1] = seed2;
+        if (seed1) bracketBaseInmutable[0] = seed1;
+        if (seed2) bracketBaseInmutable[potencia - 1] = seed2;
 
         const fantasmasNecesarios = potencia - numParejas;
         const ordenPrioridad = [];
@@ -975,55 +947,87 @@ function generarBracketCSP(
         }
         const posicionesAsignadas = ordenPrioridad.slice(0, fantasmasNecesarios);
         for (const pos of posicionesAsignadas) {
-            bracketBase[pos] = { nombre: "Fantasma (BYE)", esBye: true };
+            bracketBaseInmutable[pos] = { nombre: "Fantasma (BYE)", esBye: true };
         }
 
-        let puntero = 0;
-        for (let i = 0; i < potencia; i++) {
-            if (bracketBase[i] === null) {
-                bracketBase[i] = parejasRestantes[puntero] || { nombre: "Fantasma (BYE)", esBye: true };
-                puntero++;
+        let mejorCuadroCat = null;
+        let actual_orden = [...parejasRestantes];
+
+        for (let intento = 0; intento < intentosMax; intento++) {
+            let intento_orden = [...actual_orden];
+            if (intento > 0) {
+                const idx1 = Math.floor(Math.random() * intento_orden.length);
+                const idx2 = Math.floor(Math.random() * intento_orden.length);
+                [intento_orden[idx1], intento_orden[idx2]] = [intento_orden[idx2], intento_orden[idx1]];
             }
-        }
 
-        // Construir árbol del bracket
-        const raices = construirArbolBracket(bracketBase, esCruceProhibido);
+            let bracketIntento = [...bracketBaseInmutable];
+            let puntero = 0;
+            for (let i = 0; i < potencia; i++) {
+                if (bracketIntento[i] === null) {
+                    bracketIntento[i] = intento_orden[puntero] || { nombre: "Fantasma (BYE)", esBye: true };
+                    puntero++;
+                }
+            }
 
-        // Slots disponibles filtrados (excluye los ya gastados globalmente)
-        const slotsLibres = slots.filter(s => !slotsGastadosGlobales.has(s.slotIndex));
+            const raices = construirArbolBracket(bracketIntento, esCruceProhibido);
 
-        // PASO 4: Primera pasada – duras + blandas
-        const slotsOcupados = new Set();
-        let exito = false;
+            const cuadroPlanoInicial = aplanarArbol(raices);
+            const tieneCruceProhibido = cuadroPlanoInicial.some(p => p.cruceProhibido);
+            if (tieneCruceProhibido) {
+                actual_orden = intento_orden;
+                continue;
+            }
 
-        for (const raiz of raices) {
-            exito = _backtrackNodo(
-                raiz, slotsLibres, slotsOcupados,
-                restriccionesCat, null, false
-            );
-            if (!exito) break;
-        }
+            const slotsLibres = slots.filter(s => !slotsGastadosGlobales.has(s.slotIndex));
+            const slotsOcupados = new Set();
+            let exito = false;
 
-        // PASO 4: Segunda pasada – solo duras (relajación dinámica)
-        if (!exito) {
-            _limpiarSubarbol(raices, slotsOcupados);
-            slotsOcupados.clear();
+            // --- Contexto para la distribución espaciada ---
+            const startMs = slots.length > 0 ? new Date(slots[0].fechaHora).getTime() : 0;
+            const endMs = slots.length > 0 ? new Date(slots[slots.length - 1].fechaHora).getTime() : 0;
+            const maxRonda = raices.length > 0 ? raices[0].ronda : 0;
+            const contextoTorneo = { startMs, endMs, rondasTotal: maxRonda + 1 };
+            // -----------------------------------------------
 
             for (const raiz of raices) {
-                exito = _backtrackNodo(
-                    raiz, slotsLibres, slotsOcupados,
-                    restriccionesCat, null, true
-                );
+                exito = _backtrackNodo(raiz, slotsLibres, slotsOcupados, restriccionesCat, null, false, diasValidosSemis, contextoTorneo);
                 if (!exito) break;
             }
+
+            if (!exito) {
+                _limpiarSubarbol(raices, slotsOcupados);
+                slotsOcupados.clear();
+                for (const raiz of raices) {
+                    exito = _backtrackNodo(raiz, slotsLibres, slotsOcupados, restriccionesCat, null, true, diasValidosSemis, contextoTorneo);
+                    if (!exito) break;
+                }
+            }
+
+            if (exito) {
+                for (const idx of slotsOcupados) slotsGastadosGlobales.add(idx);
+
+                // LA SOLUCIÓN DEL EFECTO FOTO: Ahora capturamos el cuadro DESPUÉS de que se hayan asignado las fechas
+                mejorCuadroCat = aplanarArbol(raices);
+                break;
+            }
+
+            actual_orden = intento_orden;
         }
 
-        // Marcar slots consumidos como gastados globalmente
-        for (const idx of slotsOcupados) {
-            slotsGastadosGlobales.add(idx);
+        if (!mejorCuadroCat) {
+            let bracketIntento = [...bracketBaseInmutable];
+            let p = 0;
+            for (let i = 0; i < potencia; i++) {
+                if (bracketIntento[i] === null) {
+                    bracketIntento[i] = actual_orden[p++] || { nombre: "Fantasma (BYE)", esBye: true };
+                }
+            }
+            const raicesFallback = construirArbolBracket(bracketIntento, esCruceProhibido);
+            mejorCuadroCat = aplanarArbol(raicesFallback);
         }
 
-        cuadro[nombreGrupo] = aplanarArbol(raices);
+        cuadro[nombreGrupo] = mejorCuadroCat;
     }
 
     return cuadro;
@@ -1035,7 +1039,6 @@ if (typeof module !== 'undefined' && module.exports) {
         generarPrimeraRonda,
         construirPromptAnalisisTodas,
         callOpenAI,
-        // CSP Backtracking Engine
         generarBracketCSP,
         fusionarRestricciones,
         esTemporalmenteViable,

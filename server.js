@@ -45,12 +45,12 @@ app.post('/api/generar-cuadros', async (req, res) => {
         }
 
         const cuadros = await generarPrimeraRonda(
-            horariosPorPista, 
-            inscripciones, 
-            cabezasDeSerie, 
-            process.env.OPENAI_API_KEY, 
-            formatos, 
-            1000, 
+            horariosPorPista,
+            inscripciones,
+            cabezasDeSerie,
+            process.env.OPENAI_API_KEY,
+            formatos,
+            1000,
             excepcionesEmparejamiento
         );
         res.status(200).json(cuadros);
@@ -58,6 +58,40 @@ app.post('/api/generar-cuadros', async (req, res) => {
     } catch (error) {
         console.error("Error en /api/generar-cuadros:", error);
         res.status(500).json({ error: "Error en el servidor al invocar OpenAI." });
+    }
+});
+
+app.get('/api/destruir-cache-ia', (req, res) => {
+    const fs = require('fs');
+    const path = require('path');
+
+    // Ajusta el path relativo según dónde esté tu server.js respecto al archivo
+    const CACHE_FILE = path.join(__dirname, 'ia_cache_restricciones.json');
+
+    try {
+        let discoPurgado = false;
+
+        // 1. Destrucción en disco
+        if (fs.existsSync(CACHE_FILE)) {
+            fs.unlinkSync(CACHE_FILE);
+            discoPurgado = true;
+        }
+
+        // 2. Destrucción en RAM
+        if (typeof global.restriccionesCache !== 'undefined') {
+            global.restriccionesCache = {};
+        }
+
+        res.status(200).json({
+            status: "success",
+            message: "Purga completada.",
+            details: {
+                disco: discoPurgado ? "Archivo eliminado" : "No existía archivo físico",
+                ram: "Objeto global reseteado"
+            }
+        });
+    } catch (error) {
+        res.status(500).json({ status: "error", message: error.message });
     }
 });
 

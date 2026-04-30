@@ -702,7 +702,7 @@ function processInscriptions(data) {
 
     const categories = {};
     let totalValidPairs = 0;
-    
+
     pairsByCategory = {}; // Reset
 
     data.forEach(row => {
@@ -712,7 +712,7 @@ function processInscriptions(data) {
         if (name !== '' && name !== 'Sense Nom') {
             if (!categories[cat]) categories[cat] = 0;
             if (!pairsByCategory[cat]) pairsByCategory[cat] = [];
-            
+
             categories[cat]++;
             pairsByCategory[cat].push(name);
             totalValidPairs++;
@@ -720,7 +720,7 @@ function processInscriptions(data) {
     });
 
     renderInscriptionsSummary(categories, totalValidPairs);
-    
+
     // Iniciar UI de reglas
     populateRulesCategories();
     document.getElementById('matchup-rules-section').classList.remove('hidden');
@@ -849,6 +849,21 @@ document.getElementById('btn-generate-draws').addEventListener('click', async ()
         });
 
         const cuadros = response.data;
+
+        // NUEVO: Escáner de colisiones duras
+        const erroresInsalvables = [];
+        for (const cat in cuadros) {
+            cuadros[cat].forEach(partido => {
+                if (partido.error && !partido.esBye) {
+                    erroresInsalvables.push(`[${cat}] ${partido.error}`);
+                }
+            });
+        }
+
+        if (erroresInsalvables.length > 0) {
+            alert("⚠️ ATENCIÓN: Hay partidos que no se han podido programar por conflictos de restricciones duras o falta de pistas libres.\n\n" + erroresInsalvables.join("\n"));
+        }
+
         console.log("Cuadros generados exitosamente:", cuadros);
         msgSucc.innerText = dict.genSuccess;
         renderizarCuadros(cuadros);
@@ -952,7 +967,7 @@ function renderizarCuadros(cuadrosData) {
         } else {
             // --- RENDER DE ÁRBOL (BRACKET) ---
             html += `<div class="bracket-wrapper">`;
-            
+
             // Agrupar partidos por ronda
             const partidosPorRonda = {};
             // El motor genera el array en orden DFS (Root, Right, Left).
@@ -962,15 +977,15 @@ function renderizarCuadros(cuadrosData) {
                 if (!partidosPorRonda[r]) partidosPorRonda[r] = [];
                 partidosPorRonda[r].push(p);
             });
-            
+
             const rondasKeys = Object.keys(partidosPorRonda).map(Number).sort((a, b) => a - b);
-            
+
             rondasKeys.forEach(r => {
                 html += `<div class="bracket-column">`;
-                
+
                 // Ordenar partidos para preservar el orden topológico (opcional, dependiendo de cómo se devuelvan)
                 const partidosRonda = partidosPorRonda[r];
-                
+
                 partidosRonda.forEach((p, i) => {
                     const esImpar = i % 2 !== 0 ? 'odd' : '';
 
@@ -1011,7 +1026,7 @@ function renderizarCuadros(cuadrosData) {
                         </div>
                     `;
                 });
-                
+
                 html += `</div>`;
             });
             html += `</div>`;
@@ -1164,7 +1179,7 @@ document.getElementById('btn-view-schedule').addEventListener('click', function 
 function populateRulesCategories() {
     const catSelect = document.getElementById('rule-category');
     catSelect.innerHTML = '<option value="">-- Categoría --</option>';
-    
+
     Object.keys(pairsByCategory).sort().forEach(cat => {
         catSelect.innerHTML += `<option value="${cat}">${cat}</option>`;
     });
@@ -1176,7 +1191,7 @@ function populateRulesPairs() {
     const cat = document.getElementById('rule-category').value;
     const p1Select = document.getElementById('rule-pair1');
     const p2Select = document.getElementById('rule-pair2');
-    
+
     p1Select.innerHTML = '<option value="">-- Pareja 1 --</option>';
     p2Select.innerHTML = '<option value="">-- Pareja 2 --</option>';
 
@@ -1213,7 +1228,7 @@ document.getElementById('btn-add-rule').addEventListener('click', () => {
     renderRulesList();
 });
 
-window.removeRule = function(id) {
+window.removeRule = function (id) {
     matchExceptions = matchExceptions.filter(r => r.id !== id);
     renderRulesList();
 };
