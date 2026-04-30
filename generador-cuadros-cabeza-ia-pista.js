@@ -177,129 +177,24 @@ async function generarPrimeraRonda(horariosPorPista, inscripciones, cabezasDeSer
         let estancamiento = 0;
 
         if (formato === 'bracket') {
-            // --- LÓGICA DE BRACKET ELIMINATORIO ---
-            let numParejas = parejas.length;
-            let potencia = 1;
-            while (potencia < numParejas) potencia *= 2;
-
-            const bracketBase = new Array(potencia).fill(null);
-            const semillas = cabezasDeSerie[nombreGrupo] || [];
-            let parejasRestantes = [];
-            let seed1 = null, seed2 = null;
-
-            for (const j of parejas) {
-                if (semillas.length > 0 && j.nombre === semillas[0]) seed1 = j;
-                else if (semillas.length > 1 && j.nombre === semillas[1]) seed2 = j;
-                else parejasRestantes.push(j);
-            }
-
-            if (seed1) bracketBase[0] = seed1;
-            if (seed2) bracketBase[potencia - 1] = seed2;
-
-            const fantasmasNecesarios = potencia - numParejas;
-            const ordenPrioridad = [];
-            if (potencia >= 4) {
-                ordenPrioridad.push(1);
-                ordenPrioridad.push(potencia - 2);
-            } else if (potencia === 2) {
-                ordenPrioridad.push(1);
-            }
-            for (let i = 1; i < potencia; i += 2) {
-                if (!ordenPrioridad.includes(i)) ordenPrioridad.push(i);
-            }
-            const posicionesAsignadas = ordenPrioridad.slice(0, fantasmasNecesarios);
-            for (let pos of posicionesAsignadas) {
-                bracketBase[pos] = { nombre: "Fantasma (BYE)", esBye: true };
-            }
-
-            let actual_orden = [...parejasRestantes];
-
-            for (let intento = 0; intento < intentos; intento++) {
-                let intento_orden = [...actual_orden];
-                if (intento > 0) {
-                    const idx1 = Math.floor(Math.random() * intento_orden.length);
-                    const idx2 = Math.floor(Math.random() * intento_orden.length);
-                    [intento_orden[idx1], intento_orden[idx2]] = [intento_orden[idx2], intento_orden[idx1]];
+            // --- LÓGICA DE BRACKET ELIMINATORIO CON CSP BACKTRACKING ---
+            const bracketObj = {
+                [nombreGrupo]: {
+                    parejas: parejas,
+                    cabezasDeSerie: cabezasDeSerie[nombreGrupo] || []
                 }
+            };
 
-                let bracketIntento = [...bracketBase];
-                let puntero = 0;
-                for (let i = 0; i < potencia; i++) {
-                    if (bracketIntento[i] === null) {
-                        bracketIntento[i] = intento_orden[puntero] || { nombre: "Fantasma (BYE)", esBye: true };
-                        puntero++;
-                    }
-                }
+            // generarBracketCSP ya muta slotsGastadosGlobales in-place
+            const resultadoCSP = generarBracketCSP(
+                slotsDisponibles,
+                restriccionesJSON,
+                bracketObj,
+                excepcionesEmparejamiento,
+                slotsGastadosGlobales
+            );
 
-                const partidosIntento = [];
-                let slotsUsadosVirtualmente = new Set();
-                let scoreIntento = { imp: 0, pen: 0 };
-
-                for (let i = 0; i < bracketIntento.length; i += 2) {
-                    const j1 = bracketIntento[i] || { nombre: "Fantasma (BYE)", esBye: true };
-                    const j2 = bracketIntento[i + 1] || { nombre: "Fantasma (BYE)", esBye: true };
-                    const esBye = j1.esBye || j2.esBye;
-                    const partido = { pareja1: j1.nombre, pareja2: j2.nombre, esBye };
-
-                    if (!esBye) {
-                        // NUEVO: Cortafuegos de emparejamiento. Destruye la permutación actual.
-                        if (esCruceProhibido(j1.nombre, j2.nombre)) {
-                            partido.error = "Cruce prohibido por el organizador";
-                            scoreIntento.imp += 1;
-                            scoreIntento.pen += 500000; // Penalización insalvable
-                            partidosIntento.push(partido);
-                            continue; // Aborta la búsqueda de slots para ahorrar CPU
-                        }
-
-                        let mejorSlot = null;
-                        let mejorScoreSlot = { imp: Infinity, pen: Infinity };
-                        let indiceMejorSlot = -1;
-
-                        for (let s = 0; s < slotsDisponibles.length; s++) {
-                            if (slotsGastadosGlobales.has(s) || slotsUsadosVirtualmente.has(s)) continue;
-
-                            const slot = slotsDisponibles[s];
-                            const scoreSlot = evaluarPartidoUnico(j1.nombre, j2.nombre, slot.fechaHora, restriccionesCat);
-
-                            if (scoreSlot.imp < mejorScoreSlot.imp || (scoreSlot.imp === mejorScoreSlot.imp && scoreSlot.pen < mejorScoreSlot.pen)) {
-                                mejorScoreSlot = scoreSlot;
-                                mejorSlot = slot;
-                                indiceMejorSlot = s;
-                            }
-                            if (mejorScoreSlot.imp === 0 && mejorScoreSlot.pen === 0) break;
-                        }
-
-                        if (mejorSlot) {
-                            partido.fechaHora = mejorSlot.fechaHora;
-                            partido.pista = mejorSlot.pista;
-                            partido.slotIndex = indiceMejorSlot;
-                            slotsUsadosVirtualmente.add(indiceMejorSlot);
-                            scoreIntento.imp += mejorScoreSlot.imp;
-                            scoreIntento.pen += mejorScoreSlot.pen;
-                        } else {
-                            partido.error = "No hay horarios disponibles.";
-                            scoreIntento.imp += 1000;
-                        }
-                    }
-                    partidosIntento.push(partido);
-                }
-
-                let esMejor = (scoreIntento.imp < mejorScoreGlobal.imp) || (scoreIntento.imp === mejorScoreGlobal.imp && scoreIntento.pen < mejorScoreGlobal.pen);
-                if (esMejor || intento === 0) {
-                    mejorScoreGlobal = scoreIntento;
-                    mejorCuadroGrupo = partidosIntento;
-                    actual_orden = intento_orden;
-                    estancamiento = 0;
-                    if (scoreIntento.imp === 0 && scoreIntento.pen === 0) break;
-                } else {
-                    estancamiento++;
-                }
-
-                if (estancamiento > 50) {
-                    actual_orden.sort(() => Math.random() - 0.5);
-                    estancamiento = 0;
-                }
-            }
+            mejorCuadroGrupo = resultadoCSP[nombreGrupo];
 
         } else if (formato === 'groups') {
             // --- LÓGICA DE FASE DE GRUPOS (Round Robin) ---
@@ -605,11 +500,537 @@ async function callOpenAI(prompt, apiKey) {
     }
 }
 
+// =============================================================================
+// MOTOR CSP CON BACKTRACKING TOP-DOWN
+// Arquitectura de 4 capas:
+//   1. Top-Down DFS con backtracking real
+//   2. Fusión de dominios (Domain Intersection)
+//   3. Holgura cronológica estricta (Arc Consistency)
+//   4. Relajación dinámica de restricciones (Degradation)
+// =============================================================================
+
+const MIN_DESCANSO_MS = 4 * 60 * 60 * 1000; // 4 horas en milisegundos
+
+// ---------------------------------------------------------------------------
+// Utilidades puras
+// ---------------------------------------------------------------------------
+
+/**
+ * Evalúa si un slot ISO-string viola una restricción dura concreta.
+ * Retorna true si la restricción se viola (el slot es inválido).
+ */
+function _violaRestriccionDura(req, fechaHoraString) {
+    const fecha = new Date(fechaHoraString);
+    const mapaDias = ["DOMINGO", "LUNES", "MARTES", "MIERCOLES", "JUEVES", "VIERNES", "SABADO"];
+    const diaSemana = mapaDias[fecha.getDay()];
+    const horaTexto = fecha.toTimeString().substring(0, 5);
+    const diaNum = fecha.getDate();
+
+    const afectaDia = (
+        req.dia === "TODOS" ||
+        req.dia === diaSemana ||
+        req.dia === `${diaSemana}_MANANA` ||
+        req.dia === `${diaSemana}_TARDE`
+    );
+
+    if (req.tipo === "hora_minima" && afectaDia && horaTexto < req.hora) return true;
+    if (req.tipo === "hora_maxima" && afectaDia && horaTexto > req.hora) return true;
+    if (req.tipo === "hora_exacta" && afectaDia && horaTexto !== req.hora) return true;
+    if (req.tipo === "dia_excluido" && afectaDia) return true;
+    if (req.tipo === "rango_fechas") {
+        if (req.desde !== null && diaNum < req.desde) return true;
+        if (req.hasta !== null && diaNum > req.hasta) return true;
+    }
+    return false;
+}
+
+/**
+ * Calcula la penalización blanda acumulada de un slot para un conjunto de
+ * restricciones blandas.
+ */
+function _penalizacionBlanda(restriccionesBlandas, fechaHoraString) {
+    const fecha = new Date(fechaHoraString);
+    const mapaDias = ["DOMINGO", "LUNES", "MARTES", "MIERCOLES", "JUEVES", "VIERNES", "SABADO"];
+    const diaSemana = mapaDias[fecha.getDay()];
+    const horaTexto = fecha.toTimeString().substring(0, 5);
+    let pen = 0;
+
+    for (const req of restriccionesBlandas) {
+        const afectaDia = (
+            req.dia === "TODOS" ||
+            req.dia === diaSemana ||
+            req.dia === `${diaSemana}_MANANA` ||
+            req.dia === `${diaSemana}_TARDE`
+        );
+        const peso = req.peso || 5;
+        if (req.tipo === "hora_minima" && afectaDia && horaTexto < req.hora) pen += peso;
+        if (req.tipo === "hora_maxima" && afectaDia && horaTexto > req.hora) pen += peso;
+        if (req.tipo === "hora_exacta" && afectaDia && horaTexto !== req.hora) pen += peso;
+        if (req.tipo === "preferencia_tarde" && afectaDia && horaTexto < "16:00") pen += peso;
+        if (req.tipo === "preferencia_temprano" && afectaDia && horaTexto >= "16:00") pen += peso;
+        if (req.tipo === "dia_evitar" && req.dia === diaSemana) pen += peso;
+        if (req.tipo === "dia_preferido" && req.dia !== "TODOS" && req.dia !== diaSemana) pen += peso;
+    }
+    return pen;
+}
+
+// ---------------------------------------------------------------------------
+// PASO 2 – Fusión de dominios (Domain Intersection)
+// ---------------------------------------------------------------------------
+
+/**
+ * Recolecta y fusiona todas las restricciones duras y blandas de las
+ * parejas de un nodo del bracket (hoja o nodo interno).
+ *
+ * @param {Object} nodo - Nodo del bracket con shape:
+ *   { pareja1: string|null, pareja2: string|null, hijos: [nodo, nodo]|null }
+ * @param {Object} restriccionesCat - Mapa pareja → { restricciones_duras, restricciones_blandas }
+ * @returns {{ duras: Array, blandas: Array }}
+ */
+function fusionarRestricciones(nodo, restriccionesCat) {
+    const duras = [];
+    const blandas = [];
+
+    // Recolección DFS de todas las parejas del subárbol
+    const pila = [nodo];
+    const parejasVistas = new Set();
+
+    while (pila.length > 0) {
+        const actual = pila.pop();
+        if (!actual) continue;
+
+        if (actual.pareja1 && !parejasVistas.has(actual.pareja1)) {
+            parejasVistas.add(actual.pareja1);
+            const r = restriccionesCat[actual.pareja1];
+            if (r) {
+                duras.push(...(r.restricciones_duras || []));
+                blandas.push(...(r.restricciones_blandas || []));
+            }
+        }
+        if (actual.pareja2 && !parejasVistas.has(actual.pareja2)) {
+            parejasVistas.add(actual.pareja2);
+            const r = restriccionesCat[actual.pareja2];
+            if (r) {
+                duras.push(...(r.restricciones_duras || []));
+                blandas.push(...(r.restricciones_blandas || []));
+            }
+        }
+        if (actual.hijos) {
+            for (const hijo of actual.hijos) pila.push(hijo);
+        }
+    }
+
+    return { duras, blandas };
+}
+
+// ---------------------------------------------------------------------------
+// PASO 3 – Validación de Arc Consistency (holgura cronológica)
+// ---------------------------------------------------------------------------
+
+/**
+ * Devuelve true si el slot hijo es temporalmente viable respecto al slot padre.
+ * Regla: tiempoHijo <= tiempoPadre - MIN_DESCANSO_MS
+ *
+ * @param {string} fechaHoraHijo  - ISO string del slot candidato para el hijo
+ * @param {string|null} fechaHoraPadre - ISO string del slot ya asignado al padre (null = sin restricción)
+ */
+function esTemporalmenteViable(fechaHoraHijo, fechaHoraPadre) {
+    if (!fechaHoraPadre) return true;
+    return new Date(fechaHoraHijo).getTime() <= new Date(fechaHoraPadre).getTime() - MIN_DESCANSO_MS;
+}
+
+// ---------------------------------------------------------------------------
+// PASO 1 – Motor de backtracking top-down
+// ---------------------------------------------------------------------------
+
+/**
+ * Evalúa si un slot es aceptable para un nodo dados sus dominios fusionados
+ * y la restricción temporal del padre.
+ *
+ * @param {string}  fechaHoraSlot
+ * @param {Object}  dominios          - { duras, blandas } del nodo
+ * @param {string|null} fechaHoraPadre
+ * @param {boolean} ignorarBlandas    - true en la segunda pasada de degradación
+ * @returns {{ valido: boolean, pen: number }}
+ */
+function _evaluarSlotNodo(fechaHoraSlot, dominios, fechaHoraPadre, ignorarBlandas) {
+    // Arc consistency
+    if (!esTemporalmenteViable(fechaHoraSlot, fechaHoraPadre)) {
+        return { valido: false, pen: Infinity };
+    }
+
+    // Restricciones duras
+    for (const req of dominios.duras) {
+        if (_violaRestriccionDura(req, fechaHoraSlot)) {
+            return { valido: false, pen: Infinity };
+        }
+    }
+
+    // Restricciones blandas
+    const pen = ignorarBlandas ? 0 : _penalizacionBlanda(dominios.blandas, fechaHoraSlot);
+    return { valido: true, pen };
+}
+
+/**
+ * Función recursiva de backtracking top-down.
+ *
+ * Asigna slots al árbol de nodos del bracket mediante DFS en profundidad:
+ * primero ancla los nodos más profundos (hojas = Ronda 1), luego sube.
+ *
+ * @param {Object}   nodo            - Nodo actual del bracket
+ * @param {Array}    slotsDisponibles - Array de { fechaHora, pista, slotIndex }
+ * @param {Set}      slotsOcupados   - Índices de slots ya asignados (mutado in-place)
+ * @param {Object}   restriccionesCat
+ * @param {string|null} fechaHoraPadre - Restricción temporal del padre
+ * @param {boolean}  ignorarBlandas
+ * @returns {boolean} true si la rama entera fue asignada con éxito
+ */
+function _backtrackNodo(nodo, slotsDisponibles, slotsOcupados, restriccionesCat, fechaHoraPadre, ignorarBlandas) {
+    // Nodo fantasma (BYE): no necesita slot, siempre válido
+    if (nodo.esBye) return true;
+
+    // Hojas (partidos reales sin hijos pendientes): asignar slot directamente
+    const dominios = fusionarRestricciones(nodo, restriccionesCat);
+
+    // Intentar cada slot en orden cronológico
+    for (let i = 0; i < slotsDisponibles.length; i++) {
+        if (slotsOcupados.has(i)) continue;
+
+        const slot = slotsDisponibles[i];
+        const { valido, pen } = _evaluarSlotNodo(slot.fechaHora, dominios, fechaHoraPadre, ignorarBlandas);
+
+        if (!valido) {
+            // Poda: si ya pasamos el tiempo máximo permitido, no tiene sentido seguir
+            // (los slots están ordenados cronológicamente)
+            if (fechaHoraPadre && new Date(slot.fechaHora).getTime() < new Date(fechaHoraPadre).getTime() - MIN_DESCANSO_MS * 10) {
+                continue; // Seguir buscando slots posteriores
+            }
+            continue;
+        }
+
+        // Slot provisionalmente asignado
+        slotsOcupados.add(i);
+        nodo.fechaHora = slot.fechaHora;
+        nodo.pista = slot.pista;
+        nodo.slotIndex = i;
+        nodo.penalizacion = (nodo.penalizacion || 0) + pen;
+
+        // Recursión sobre hijos (el tiempo del padre para los hijos es el slot actual)
+        let hijosOk = true;
+        if (nodo.hijos && nodo.hijos.length > 0) {
+            for (const hijo of nodo.hijos) {
+                if (!_backtrackNodo(hijo, slotsDisponibles, slotsOcupados, restriccionesCat, slot.fechaHora, ignorarBlandas)) {
+                    hijosOk = false;
+                    break;
+                }
+            }
+        }
+
+        if (hijosOk) return true;
+
+        // Backtrack: deshacer asignación del nodo actual y de todos sus hijos
+        slotsOcupados.delete(i);
+        delete nodo.fechaHora;
+        delete nodo.pista;
+        delete nodo.slotIndex;
+        delete nodo.penalizacion;
+        _limpiarSubarbol(nodo.hijos, slotsOcupados);
+    }
+
+    return false; // No hay slot viable en este dominio
+}
+
+/**
+ * Limpia recursivamente las asignaciones de un subárbol tras un backtrack.
+ */
+function _limpiarSubarbol(hijos, slotsOcupados) {
+    if (!hijos) return;
+    for (const hijo of hijos) {
+        if (hijo.slotIndex !== undefined) {
+            slotsOcupados.delete(hijo.slotIndex);
+        }
+        delete hijo.fechaHora;
+        delete hijo.pista;
+        delete hijo.slotIndex;
+        delete hijo.penalizacion;
+        _limpiarSubarbol(hijo.hijos, slotsOcupados);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Constructores de árbol de bracket
+// ---------------------------------------------------------------------------
+
+/**
+ * Construye un árbol de nodos de bracket a partir de un array plano de
+ * parejas (ya ordenado con BYEs) para hasta 3 rondas.
+ */
+function construirArbolBracket(bracketBase, esCruceProhibido) {
+    const numParejas = bracketBase.length;
+
+    // Ronda 1: nodos hoja
+    const r1 = [];
+    for (let i = 0; i < numParejas; i += 2) {
+        const p1 = bracketBase[i];
+        const p2 = bracketBase[i + 1] || { nombre: "Fantasma (BYE)", esBye: true };
+        const esBye = !!(p1.esBye || p2.esBye);
+        const esFantasma = !!(p1.esBye && p2.esBye);
+        const prohibido = !esBye && esCruceProhibido(p1.nombre, p2.nombre);
+
+        let ganadorConocido = null;
+        if (esFantasma) {
+            ganadorConocido = "Fantasma (BYE)";
+        } else if (p1.esBye) {
+            ganadorConocido = p2.nombre;
+        } else if (p2.esBye) {
+            ganadorConocido = p1.nombre;
+        }
+
+        r1.push({
+            id: `R1_${i / 2}`,
+            ronda: 0,
+            pareja1: p1.nombre,
+            pareja2: p2.nombre,
+            esBye,
+            esFantasma,
+            ganadorConocido,
+            cruceProhibido: prohibido,
+            hijos: null
+        });
+    }
+
+    if (r1.length <= 1) return r1; // Solo hay un partido (2 parejas)
+
+    // Ronda 2 (Cuartos de Final)
+    const r2 = [];
+    for (let i = 0; i < r1.length; i += 2) {
+        const hijoA = r1[i];
+        const hijoB = r1[i + 1];
+        if (!hijoB) { r2.push(hijoA); continue; }
+
+        let ganadorConocido = null;
+        const esFantasma = hijoA.esFantasma && hijoB.esFantasma;
+        if (esFantasma) {
+            ganadorConocido = "Fantasma (BYE)";
+        } else if (hijoA.esFantasma) {
+            ganadorConocido = hijoB.ganadorConocido;
+        } else if (hijoB.esFantasma) {
+            ganadorConocido = hijoA.ganadorConocido;
+        }
+
+        r2.push({
+            id: `QF_${i / 2}`,
+            ronda: 1,
+            pareja1: hijoA.ganadorConocido,
+            pareja2: hijoB.ganadorConocido,
+            esBye: hijoA.esFantasma || hijoB.esFantasma,
+            esFantasma,
+            ganadorConocido,
+            hijos: [hijoA, hijoB]
+        });
+    }
+
+    if (r2.length <= 1) return r2;
+
+    // Ronda 3 (Semifinales)
+    const r3 = [];
+    for (let i = 0; i < r2.length; i += 2) {
+        const hijoA = r2[i];
+        const hijoB = r2[i + 1];
+        if (!hijoB) { r3.push(hijoA); continue; }
+
+        let ganadorConocido = null;
+        const esFantasma = hijoA.esFantasma && hijoB.esFantasma;
+        if (esFantasma) {
+            ganadorConocido = "Fantasma (BYE)";
+        } else if (hijoA.esFantasma) {
+            ganadorConocido = hijoB.ganadorConocido;
+        } else if (hijoB.esFantasma) {
+            ganadorConocido = hijoA.ganadorConocido;
+        }
+
+        r3.push({
+            id: `SF_${i / 2}`,
+            ronda: 2,
+            pareja1: hijoA.ganadorConocido,
+            pareja2: hijoB.ganadorConocido,
+            esBye: hijoA.esFantasma || hijoB.esFantasma,
+            esFantasma,
+            ganadorConocido,
+            hijos: [hijoA, hijoB]
+        });
+    }
+
+    return r3.length > 0 ? r3 : r2;
+}
+
+/**
+ * Aplana el árbol de nodos a un array plano de partidos para el cuadro
+ * (solo las hojas y nodos internos con datos suficientes).
+ */
+function aplanarArbol(raices) {
+    const resultado = [];
+    const pila = [...raices];
+    while (pila.length > 0) {
+        const nodo = pila.pop();
+        if (nodo.hijos) {
+            for (const h of nodo.hijos) pila.push(h);
+        }
+        // Nodo hoja (Ronda 1) o nodo interno ya procesado
+        const partido = {
+            pareja1: nodo.pareja1 || '(ganador anterior)',
+            pareja2: nodo.pareja2 || '(ganador anterior)',
+            ronda: nodo.ronda,
+            esBye: !!nodo.esBye,
+            cruceProhibido: !!nodo.cruceProhibido
+        };
+        if (nodo.fechaHora) partido.fechaHora = nodo.fechaHora;
+        if (nodo.pista) partido.pista = nodo.pista;
+        if (nodo.penalizacion !== undefined) partido.penalizacion = nodo.penalizacion;
+        if (!nodo.fechaHora && !nodo.esBye) partido.error = 'No se encontró slot viable';
+        resultado.push(partido);
+    }
+    return resultado;
+}
+
+// ---------------------------------------------------------------------------
+// PASO 4 – Relajación dinámica (Degradation) + punto de entrada público
+// ---------------------------------------------------------------------------
+
+/**
+ * Motor CSP con Backtracking Top-Down para calendarización de brackets
+ * eliminatorios de hasta 3 rondas.
+ *
+ * @param {Array}  slotsDisponibles  - [{ fechaHora: ISOString, pista: string, slotIndex: number }]
+ *                                    Ya ordenados cronológicamente y con slotIndex explícito.
+ * @param {Object} restriccionesJSON - { [categoria]: { [pareja]: { restricciones_duras, restricciones_blandas } } }
+ * @param {Object} bracket           - { [categoria]: { parejas: Array<{nombre,esBye?}>, cabezasDeSerie?: string[] } }
+ * @param {Array}  excepcionesEmparejamiento - [{ cat, p1, p2 }]
+ * @param {Set}    [slotsGastadosGlobales]   - Set de índices ya consumidos por otras categorías
+ * @returns {Object} { [categoria]: Array<Partido> }
+ */
+function generarBracketCSP(
+    slotsDisponibles,
+    restriccionesJSON,
+    bracket,
+    excepcionesEmparejamiento = [],
+    slotsGastadosGlobales = new Set()
+) {
+    // Garantizar que los slots tienen slotIndex
+    const slots = slotsDisponibles.map((s, i) => ({
+        ...s,
+        slotIndex: s.slotIndex !== undefined ? s.slotIndex : i
+    }));
+
+    const cuadro = {};
+
+    for (const [nombreGrupo, datos] of Object.entries(bracket)) {
+        const parejas = datos.parejas || [];
+        const semillas = datos.cabezasDeSerie || [];
+        const restriccionesCat = restriccionesJSON[nombreGrupo] || {};
+
+        const excepcionesCat = excepcionesEmparejamiento.filter(e => e.cat === nombreGrupo);
+        const esCruceProhibido = (p1, p2) =>
+            excepcionesCat.some(e =>
+                (e.p1 === p1 && e.p2 === p2) || (e.p1 === p2 && e.p2 === p1)
+            );
+
+        // Construir bracket base (mismo algoritmo de seed que el motor greedy)
+        let numParejas = parejas.length;
+        let potencia = 1;
+        while (potencia < numParejas) potencia *= 2;
+
+        const bracketBase = new Array(potencia).fill(null);
+        let parejasRestantes = [];
+        let seed1 = null, seed2 = null;
+
+        for (const j of parejas) {
+            if (semillas.length > 0 && j.nombre === semillas[0]) seed1 = j;
+            else if (semillas.length > 1 && j.nombre === semillas[1]) seed2 = j;
+            else parejasRestantes.push(j);
+        }
+
+        if (seed1) bracketBase[0] = seed1;
+        if (seed2) bracketBase[potencia - 1] = seed2;
+
+        const fantasmasNecesarios = potencia - numParejas;
+        const ordenPrioridad = [];
+        if (potencia >= 4) {
+            ordenPrioridad.push(1);
+            ordenPrioridad.push(potencia - 2);
+        } else if (potencia === 2) {
+            ordenPrioridad.push(1);
+        }
+        for (let i = 1; i < potencia; i += 2) {
+            if (!ordenPrioridad.includes(i)) ordenPrioridad.push(i);
+        }
+        const posicionesAsignadas = ordenPrioridad.slice(0, fantasmasNecesarios);
+        for (const pos of posicionesAsignadas) {
+            bracketBase[pos] = { nombre: "Fantasma (BYE)", esBye: true };
+        }
+
+        let puntero = 0;
+        for (let i = 0; i < potencia; i++) {
+            if (bracketBase[i] === null) {
+                bracketBase[i] = parejasRestantes[puntero] || { nombre: "Fantasma (BYE)", esBye: true };
+                puntero++;
+            }
+        }
+
+        // Construir árbol del bracket
+        const raices = construirArbolBracket(bracketBase, esCruceProhibido);
+
+        // Slots disponibles filtrados (excluye los ya gastados globalmente)
+        const slotsLibres = slots.filter(s => !slotsGastadosGlobales.has(s.slotIndex));
+
+        // PASO 4: Primera pasada – duras + blandas
+        const slotsOcupados = new Set();
+        let exito = false;
+
+        for (const raiz of raices) {
+            exito = _backtrackNodo(
+                raiz, slotsLibres, slotsOcupados,
+                restriccionesCat, null, false
+            );
+            if (!exito) break;
+        }
+
+        // PASO 4: Segunda pasada – solo duras (relajación dinámica)
+        if (!exito) {
+            _limpiarSubarbol(raices, slotsOcupados);
+            slotsOcupados.clear();
+
+            for (const raiz of raices) {
+                exito = _backtrackNodo(
+                    raiz, slotsLibres, slotsOcupados,
+                    restriccionesCat, null, true
+                );
+                if (!exito) break;
+            }
+        }
+
+        // Marcar slots consumidos como gastados globalmente
+        for (const idx of slotsOcupados) {
+            slotsGastadosGlobales.add(idx);
+        }
+
+        cuadro[nombreGrupo] = aplanarArbol(raices);
+    }
+
+    return cuadro;
+}
+
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
         evaluarPartidoUnico,
         generarPrimeraRonda,
         construirPromptAnalisisTodas,
-        callOpenAI
+        callOpenAI,
+        // CSP Backtracking Engine
+        generarBracketCSP,
+        fusionarRestricciones,
+        esTemporalmenteViable,
+        construirArbolBracket,
+        aplanarArbol
     };
 }

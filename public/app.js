@@ -952,72 +952,68 @@ function renderizarCuadros(cuadrosData) {
         } else {
             // --- RENDER DE ÁRBOL (BRACKET) ---
             html += `<div class="bracket-wrapper">`;
-            const numPartidosR1 = partidos.length;
-            let rondasTotal = Math.log2(numPartidosR1 * 2);
-
-            for (let r = 0; r < rondasTotal; r++) {
-                const partidosEnEstaRonda = numPartidosR1 / Math.pow(2, r);
+            
+            // Agrupar partidos por ronda
+            const partidosPorRonda = {};
+            // El motor genera el array en orden DFS (Root, Right, Left).
+            // Lo invertimos para que al agrupar quede (Left, Right) -> Top to Bottom visualmente.
+            [...partidos].reverse().forEach(p => {
+                const r = p.ronda || 0;
+                if (!partidosPorRonda[r]) partidosPorRonda[r] = [];
+                partidosPorRonda[r].push(p);
+            });
+            
+            const rondasKeys = Object.keys(partidosPorRonda).map(Number).sort((a, b) => a - b);
+            
+            rondasKeys.forEach(r => {
                 html += `<div class="bracket-column">`;
-
-                for (let i = 0; i < partidosEnEstaRonda; i++) {
+                
+                // Ordenar partidos para preservar el orden topológico (opcional, dependiendo de cómo se devuelvan)
+                const partidosRonda = partidosPorRonda[r];
+                
+                partidosRonda.forEach((p, i) => {
                     const esImpar = i % 2 !== 0 ? 'odd' : '';
 
-                    if (r === 0) {
-                        const p = partidos[i];
-                        let fechaStr = "Horario a definir";
-                        if (p.fechaHora) {
-                            const dateObj = new Date(p.fechaHora);
-                            const diaNum = String(dateObj.getDate()).padStart(2, '0');
-                            const mesNum = String(dateObj.getMonth() + 1).padStart(2, '0');
-                            const horas = String(dateObj.getHours()).padStart(2, '0');
-                            const mins = String(dateObj.getMinutes()).padStart(2, '0');
-                            fechaStr = `${diaNum}/${mesNum} - ${horas}:${mins}`;
-                        }
-
-                        const isBye1 = !p.pareja1 || p.pareja1.includes("Fantasma");
-                        const isBye2 = !p.pareja2 || p.pareja2.includes("Fantasma");
-
-                        const p1Class = isBye1 ? "team bye" : "team filled";
-                        const p2Class = isBye2 ? "team bye" : "team filled";
-
-                        const p1Name = isBye1 ? "BYE" : p.pareja1;
-                        const p2Name = isBye2 ? "BYE" : p.pareja2;
-
-                        const pistaTexto = p.esBye ? '' : (p.pista ? p.pista : 'Pista TBD');
-
-                        html += `
-                            <div class="match-box-container ${esImpar}">
-                                <div class="match-box">
-                                    <div class="match-info">
-                                        <span>${pistaTexto}</span>
-                                        <span>${p.esBye ? 'Passa de ronda' : fechaStr}</span>
-                                    </div>
-                                    <div class="match-teams">
-                                        <div class="${p1Class}"><span>${p1Name}</span> <span class="score">0</span></div>
-                                        <div class="${p2Class}"><span>${p2Name}</span> <span class="score">0</span></div>
-                                    </div>
-                                </div>
-                            </div>
-                        `;
-                    } else {
-                        html += `
-                            <div class="match-box-container ${esImpar}">
-                                <div class="match-box">
-                                    <div class="match-info">
-                                        <span>TBD</span>
-                                        <span>TBD</span>
-                                    </div>
-                                    <div class="match-teams">
-                                        <div class="team"><span>...</span> <span class="score"></span></div>
-                                        <div class="team"><span>...</span> <span class="score"></span></div>
-                                    </div>
-                                </div>
-                            </div>
-                        `;
+                    let fechaStr = "Horari a definir";
+                    if (p.fechaHora) {
+                        const dateObj = new Date(p.fechaHora);
+                        const diaNum = String(dateObj.getDate()).padStart(2, '0');
+                        const mesNum = String(dateObj.getMonth() + 1).padStart(2, '0');
+                        const horas = String(dateObj.getHours()).padStart(2, '0');
+                        const mins = String(dateObj.getMinutes()).padStart(2, '0');
+                        fechaStr = `${diaNum}/${mesNum} - ${horas}:${mins}`;
                     }
-                }
+
+                    const isBye1 = !p.pareja1 || p.pareja1.includes("Fantasma");
+                    const isBye2 = !p.pareja2 || p.pareja2.includes("Fantasma");
+
+                    const p1Class = isBye1 ? "team bye" : "team filled";
+                    const p2Class = isBye2 ? "team bye" : "team filled";
+
+                    const p1Name = isBye1 ? "BYE" : p.pareja1;
+                    const p2Name = isBye2 ? "BYE" : p.pareja2;
+
+                    const pistaTexto = p.esBye ? '' : (p.pista ? p.pista : 'Pista TBD');
+                    const infoTexto = p.esBye ? 'Passa de ronda' : fechaStr;
+
+                    html += `
+                        <div class="match-box-container ${esImpar}">
+                            <div class="match-box">
+                                <div class="match-info">
+                                    <span>${pistaTexto}</span>
+                                    <span>${infoTexto}</span>
+                                </div>
+                                <div class="match-teams">
+                                    <div class="${p1Class}"><span>${p1Name}</span> <span class="score">0</span></div>
+                                    <div class="${p2Class}"><span>${p2Name}</span> <span class="score">0</span></div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                });
+                
                 html += `</div>`;
-            }
+            });
             html += `</div>`;
         }
 
