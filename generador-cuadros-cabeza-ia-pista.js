@@ -215,11 +215,10 @@ async function generarPrimeraRonda(horariosPorPista, inscripciones, cabezasDeSer
             mejorCuadroGrupo = resultadoCSP[nombreGrupo];
 
         } else if (formato === 'groups') {
-            // --- LÓGICA DE FASE DE GRUPOS (Round Robin) ---
+            // --- LÓGICA DE FASE DE GRUPOS (Round Robin) CON ESPACIADO INTELIGENTE ---
             let todosLosPartidos = [];
             for (let i = 0; i < parejas.length; i++) {
                 for (let j = i + 1; j < parejas.length; j++) {
-                    // NUEVO: Si existe una excepción, se elimina de la matriz de la liga
                     if (!esCruceProhibido(parejas[i].nombre, parejas[j].nombre)) {
                         todosLosPartidos.push({ pareja1: parejas[i], pareja2: parejas[j], esBye: false });
                     }
@@ -227,6 +226,30 @@ async function generarPrimeraRonda(horariosPorPista, inscripciones, cabezasDeSer
             }
 
             let actual_orden_partidos = [...todosLosPartidos];
+
+            // --- NUEVO: Extraer contexto temporal y acotar días para la fase de grupos ---
+            const diasTorneoGrupos = [...new Set(slotsDisponibles.map(s => s.fechaHora.split('T')[0]))].sort();
+            let diaLimiteGrupos = diasTorneoGrupos[diasTorneoGrupos.length - 1]; // Por defecto, todo el torneo
+
+            // Truncamiento de dominio: Amputamos los últimos 3 días (Final y Semis)
+            if (diasTorneoGrupos.length >= 4) {
+                diaLimiteGrupos = diasTorneoGrupos[diasTorneoGrupos.length - 4];
+            } else if (diasTorneoGrupos.length === 3) {
+                diaLimiteGrupos = diasTorneoGrupos[diasTorneoGrupos.length - 2];
+            }
+
+            // Calculamos el inicio y fin basados SOLO en la ventana de grupos permitida
+            const slotsValidosGrupos = slotsDisponibles.filter(s => s.fechaHora.split('T')[0] <= diaLimiteGrupos);
+            const startMs = slotsValidosGrupos.length > 0 ? new Date(slotsValidosGrupos[0].fechaHora).getTime() : 0;
+            const endMs = slotsValidosGrupos.length > 0 ? new Date(slotsValidosGrupos[slotsValidosGrupos.length - 1].fechaHora).getTime() : 0;
+
+            let totalPartidosEquipos = {};
+            parejas.forEach(p => totalPartidosEquipos[p.nombre] = 0);
+            todosLosPartidos.forEach(p => {
+                totalPartidosEquipos[p.pareja1.nombre]++;
+                totalPartidosEquipos[p.pareja2.nombre]++;
+            });
+            // ------------------------------------------------------------------------------
 
             for (let intento = 0; intento < intentos; intento++) {
                 let intento_orden = [...actual_orden_partidos];
@@ -240,9 +263,11 @@ async function generarPrimeraRonda(horariosPorPista, inscripciones, cabezasDeSer
                 let slotsUsadosVirtualmente = new Set();
                 let scoreIntento = { imp: 0, pen: 0 };
 
-                // Mapeo estricto para evitar que un equipo juegue más de un partido AL DÍA
                 let bloqueosDiasEquipos = {};
                 parejas.forEach(p => bloqueosDiasEquipos[p.nombre] = new Set());
+
+                let partidosAsignados = {};
+                parejas.forEach(p => partidosAsignados[p.nombre] = 0);
 
                 for (const matchBase of intento_orden) {
                     const partido = { pareja1: matchBase.pareja1.nombre, pareja2: matchBase.pareja2.nombre, esBye: false };
@@ -251,15 +276,22 @@ async function generarPrimeraRonda(horariosPorPista, inscripciones, cabezasDeSer
                     let mejorScoreSlot = { imp: Infinity, pen: Infinity };
                     let indiceMejorSlot = -1;
 
+                    let ratioA = partidosAsignados[partido.pareja1] / Math.max(1, totalPartidosEquipos[partido.pareja1] - 1);
+                    let ratioB = partidosAsignados[partido.pareja2] / Math.max(1, totalPartidosEquipos[partido.pareja2] - 1);
+
+                    let ratioPromedio = (ratioA + ratioB) / 2;
+                    let idealMs = startMs + (endMs - startMs) * ratioPromedio;
+
                     for (let s = 0; s < slotsDisponibles.length; s++) {
                         if (slotsGastadosGlobales.has(s) || slotsUsadosVirtualmente.has(s)) continue;
 
                         const slot = slotsDisponibles[s];
-
-                        // Extraemos solo el día (ej: "2026-01-20") de la fecha ISO
                         const diaSlot = slot.fechaHora.split('T')[0];
 
-                        // Control de colisión diaria (Max 1 partido por día)
+                        // --- CORTAFUEGOS: Restricción absoluta del dominio temporal ---
+                        if (diaSlot > diaLimiteGrupos) continue;
+                        // --------------------------------------------------------------
+
                         if (bloqueosDiasEquipos[partido.pareja1].has(diaSlot) ||
                             bloqueosDiasEquipos[partido.pareja2].has(diaSlot)) {
                             continue;
@@ -267,33 +299,39 @@ async function generarPrimeraRonda(horariosPorPista, inscripciones, cabezasDeSer
 
                         const scoreSlot = evaluarPartidoUnico(partido.pareja1, partido.pareja2, slot.fechaHora, restriccionesCat);
 
-                        if (scoreSlot.imp < mejorScoreSlot.imp || (scoreSlot.imp === mejorScoreSlot.imp && scoreSlot.pen < mejorScoreSlot.pen)) {
-                            mejorScoreSlot = scoreSlot;
+                        let penaltyEspaciado = 0;
+                        if (startMs !== endMs) {
+                            const slotMs = new Date(slot.fechaHora).getTime();
+                            const diffDias = Math.abs(slotMs - idealMs) / (1000 * 60 * 60 * 24);
+                            penaltyEspaciado = diffDias * 3;
+                        }
+
+                        const totalPen = scoreSlot.pen + penaltyEspaciado;
+
+                        if (scoreSlot.imp < mejorScoreSlot.imp || (scoreSlot.imp === mejorScoreSlot.imp && totalPen < mejorScoreSlot.pen)) {
+                            mejorScoreSlot = { imp: scoreSlot.imp, pen: totalPen, penOriginal: scoreSlot.pen };
                             mejorSlot = slot;
                             indiceMejorSlot = s;
                         }
-
-                        if (mejorScoreSlot.imp === 0 && mejorScoreSlot.pen === 0) break;
                     }
 
-                    // CORTAFUEGOS: Solo asignamos si el slot cumple TODAS las restricciones duras (imp === 0)
                     if (mejorSlot && mejorScoreSlot.imp === 0) {
                         partido.fechaHora = mejorSlot.fechaHora;
                         partido.pista = mejorSlot.pista;
                         partido.slotIndex = indiceMejorSlot;
 
-                        if (formato === 'groups') {
-                            const diaAsignado = mejorSlot.fechaHora.split('T')[0];
-                            bloqueosDiasEquipos[partido.pareja1].add(diaAsignado);
-                            bloqueosDiasEquipos[partido.pareja2].add(diaAsignado);
-                        }
+                        const diaAsignado = mejorSlot.fechaHora.split('T')[0];
+                        bloqueosDiasEquipos[partido.pareja1].add(diaAsignado);
+                        bloqueosDiasEquipos[partido.pareja2].add(diaAsignado);
 
                         slotsUsadosVirtualmente.add(indiceMejorSlot);
+
+                        partidosAsignados[partido.pareja1]++;
+                        partidosAsignados[partido.pareja2]++;
                         scoreIntento.pen += mejorScoreSlot.pen;
                     } else {
-                        // El partido no se puede programar. Se queda sin fecha/pista (TBD)
-                        partido.error = `Conflicto insalvable entre ${j1.nombre} y ${j2.nombre} o falta de pistas.`;
-                        scoreIntento.imp += 1000; // Castigamos el intento global fuertemente
+                        partido.error = `Conflicto insalvable entre ${partido.pareja1} y ${partido.pareja2} o falta de pistas.`;
+                        scoreIntento.imp += 1000;
                     }
 
                     partidosIntento.push(partido);
@@ -672,7 +710,39 @@ function _evaluarSlotNodo(nodo, fechaHoraSlot, dominios, fechaHoraPadre, ignorar
         }
     }
 
-    const pen = ignorarBlandas ? 0 : _penalizacionBlanda(dominios.blandas, fechaHoraSlot);
+    let pen = ignorarBlandas ? 0 : _penalizacionBlanda(dominios.blandas, fechaHoraSlot);
+
+    // --- NUEVO: GRAVEDAD CRONOLÓGICA (Degradación Lineal) ---
+    // Penar suavemente los horarios cuanto más se alejen de la hora límite exigida
+    const fechaSlot = new Date(fechaHoraSlot);
+    const mapaDias = ["DOMINGO", "LUNES", "MARTES", "MIERCOLES", "JUEVES", "VIERNES", "SABADO"];
+    const diaSemana = mapaDias[fechaSlot.getDay()];
+    const diaNum = fechaSlot.getDate();
+    const slotMinutosTotal = (fechaSlot.getHours() * 60) + fechaSlot.getMinutes();
+
+    // Evaluamos tanto las restricciones duras como las blandas de ambos jugadores
+    for (const req of [...dominios.duras, ...dominios.blandas]) {
+        if (req.tipo === "hora_minima" || req.tipo === "hora_maxima") {
+            const afectaDia = (
+                req.dia === "TODOS" || req.dia === diaSemana ||
+                req.dia === `${diaSemana}_MANANA` || req.dia === `${diaSemana}_TARDE` ||
+                req.dia === diaNum
+            );
+
+            if (afectaDia) {
+                const [reqH, reqM] = req.hora.split(':').map(Number);
+                const reqMinutosTotal = (reqH * 60) + reqM;
+
+                // Calculamos la distancia real en minutos
+                const diffMinutos = Math.abs(slotMinutosTotal - reqMinutosTotal);
+
+                // Aplicamos 1 punto de penalización por cada 30 minutos de desvío
+                pen += (diffMinutos / 30) * 1;
+            }
+        }
+    }
+    // --------------------------------------------------------
+
     return { valido: true, pen };
 }
 
@@ -692,11 +762,15 @@ function _backtrackNodo(nodo, slotsDisponibles, slotsOcupados, restriccionesCat,
 
         let penaltyEspaciado = 0;
         if (contextoTorneo && contextoTorneo.rondasTotal > 1) {
-            const ratio = nodo.ronda / (contextoTorneo.rondasTotal - 1);
-            const idealMs = contextoTorneo.startMs + (contextoTorneo.endMs - contextoTorneo.startMs) * ratio;
-            const slotMs = new Date(slot.fechaHora).getTime();
+            // --- CORRECCIÓN DE DEBUT ---
+            // Si el partido es el primero real para ellos, usamos ronda 0 para el cálculo
+            const rondaEfectiva = nodo.isDebut ? 0 : nodo.ronda;
 
-            // Penalizamos (3 puntos) por cada día de desviación de su fecha ideal
+            const ratio = rondaEfectiva / (contextoTorneo.rondasTotal - 1);
+            const idealMs = contextoTorneo.startMs + (contextoTorneo.endMs - contextoTorneo.startMs) * ratio;
+            // ---------------------------
+
+            const slotMs = new Date(slot.fechaHora).getTime();
             const diffDias = Math.abs(slotMs - idealMs) / (1000 * 60 * 60 * 24);
             penaltyEspaciado = diffDias * 3;
         }
@@ -785,6 +859,19 @@ function construirArbolBracket(bracketBase, esCruceProhibido) {
             ganadorConocido = p1.nombre;
         }
 
+        // --- NUEVO: Rastrear potenciales rivales para proteger el "primer partido" ---
+        const potenciales = [];
+        if (!p1.esBye) potenciales.push(p1.nombre);
+        if (!p2.esBye) potenciales.push(p2.nombre);
+
+        // Si una pareja avanza por BYE, sigue siendo "virgen" (no ha jugado su 1r partido)
+        let virgenes = [];
+        if (!esFantasma) {
+            if (p1.esBye) virgenes.push(p2.nombre);
+            else if (p2.esBye) virgenes.push(p1.nombre);
+        }
+        // -----------------------------------------------------------------------------
+
         rondaActual.push({
             ronda: 0,
             pareja1: p1.nombre,
@@ -793,6 +880,8 @@ function construirArbolBracket(bracketBase, esCruceProhibido) {
             esFantasma,
             ganadorConocido,
             cruceProhibido: prohibido,
+            potenciales: potenciales,
+            virgenes: virgenes,
             hijos: null
         });
     }
@@ -813,6 +902,8 @@ function construirArbolBracket(bracketBase, esCruceProhibido) {
 
             let ganadorConocido = null;
             const esFantasma = hijoA.esFantasma && hijoB.esFantasma;
+            const esBye = hijoA.esFantasma || hijoB.esFantasma;
+
             if (esFantasma) {
                 ganadorConocido = "Fantasma (BYE)";
             } else if (hijoA.esFantasma) {
@@ -821,13 +912,40 @@ function construirArbolBracket(bracketBase, esCruceProhibido) {
                 ganadorConocido = hijoA.ganadorConocido;
             }
 
+            // --- NUEVO: Cortafuegos Profundo de "Primer Partido Real" ---
+            let prohibido = false;
+            // Si alguien de A aún no ha jugado, no puede cruzarse con ningún potencial de B
+            for (const vA of hijoA.virgenes) {
+                for (const pB of hijoB.potenciales) {
+                    if (esCruceProhibido(vA, pB)) prohibido = true;
+                }
+            }
+            // Si alguien de B aún no ha jugado, no puede cruzarse con ningún potencial de A
+            for (const vB of hijoB.virgenes) {
+                for (const pA of hijoA.potenciales) {
+                    if (esCruceProhibido(vB, pA)) prohibido = true;
+                }
+            }
+
+            // Propagar las parejas que podrían llegar a la siguiente ronda
+            const potenciales = [...hijoA.potenciales, ...hijoB.potenciales];
+            let virgenes = [];
+            // Solo siguen siendo "vírgenes" si avanzan frente a un fantasma en esta ronda
+            if (hijoA.esFantasma) virgenes = [...hijoB.virgenes];
+            else if (hijoB.esFantasma) virgenes = [...hijoA.virgenes];
+            // -------------------------------------------------------------
+
+            const esDebutA = hijoA.ronda === 0 || hijoA.esBye;
+            const esDebutB = hijoB.ronda === 0 || hijoB.esBye;
+
             siguienteRonda.push({
                 ronda: numRonda,
                 pareja1: hijoA.ganadorConocido,
                 pareja2: hijoB.ganadorConocido,
-                esBye: hijoA.esFantasma || hijoB.esFantasma,
+                esBye,
                 esFantasma,
                 ganadorConocido,
+                isDebut: esDebutA && esDebutB, // Ambos debutan aquí
                 hijos: [hijoA, hijoB]
             });
         }
