@@ -25,16 +25,19 @@ function evaluarPartidoUnico(j1, j2, fechaHoraString, restriccionesCat) {
     const todasDuras = [...(restJ1.restricciones_duras || []), ...(restJ2.restricciones_duras || [])];
     const todasBlandas = [...(restJ1.restricciones_blandas || []), ...(restJ2.restricciones_blandas || [])];
 
-    // 1. Duras
+    // 1. RESTRICCIONES DURAS
     let posible = true;
     for (const req of todasDuras) {
-        // Miramos si la restricción le afecta hoy
         const afectaDia = (req.dia === "TODOS" || req.dia === diaSemanaTexto || req.dia === `${diaSemanaTexto}_MANANA` || req.dia === `${diaSemanaTexto}_TARDE`);
 
-        if (afectaDia) {
-            if (req.tipo === "hora_minima" && horaPartidoTexto < req.hora) posible = false;
-            if (req.tipo === "hora_maxima" && horaPartidoTexto > req.hora) posible = false;
-            if (req.tipo === "dia_excluido") posible = false;
+        if (req.tipo === "hora_minima" && afectaDia && horaPartidoTexto < req.hora) posible = false;
+        if (req.tipo === "hora_maxima" && afectaDia && horaPartidoTexto > req.hora) posible = false;
+        if (req.tipo === "hora_exacta" && afectaDia && horaPartidoTexto !== req.hora) posible = false;
+        if (req.tipo === "dia_excluido" && afectaDia) posible = false;
+        if (req.tipo === "rango_fechas") {
+            const diaPartido = fechaPartido.getDate();
+            if (req.desde !== null && diaPartido < req.desde) posible = false;
+            if (req.hasta !== null && diaPartido > req.hasta) posible = false;
         }
     }
 
@@ -42,22 +45,28 @@ function evaluarPartidoUnico(j1, j2, fechaHoraString, restriccionesCat) {
         imp++;
         pen += 1000;
     } else {
-        // 2. Blandas
+        // 2. RESTRICCIONES BLANDAS
         for (const req of todasBlandas) {
-            const afectaDia = (req.dia === "TODOS" || req.dia === diaSemanaTexto);
-            if (afectaDia) {
-                if (req.tipo === "hora_minima" && horaPartidoTexto < req.hora) pen += (req.peso || 5);
-                if (req.tipo === "hora_maxima" && horaPartidoTexto > req.hora) pen += (req.peso || 5);
-                if (req.tipo === "dia_evitar") pen += (req.peso || 5);
-                if (req.tipo === "preferencia_tarde" && horaPartidoTexto < "16:00") pen += (req.peso || 5);
-            }
+            const afectaDia = (req.dia === "TODOS" || req.dia === diaSemanaTexto || req.dia === `${diaSemanaTexto}_MANANA` || req.dia === `${diaSemanaTexto}_TARDE`);
+            const peso = req.peso || 5;
+
+            // Evaluaciones dependientes del día/hora
+            if (req.tipo === "hora_minima" && afectaDia && horaPartidoTexto < req.hora) pen += peso;
+            if (req.tipo === "hora_maxima" && afectaDia && horaPartidoTexto > req.hora) pen += peso;
+            if (req.tipo === "hora_exacta" && afectaDia && horaPartidoTexto !== req.hora) pen += peso;
+            if (req.tipo === "preferencia_tarde" && afectaDia && horaPartidoTexto < "16:00") pen += peso;
+            if (req.tipo === "preferencia_temprano" && afectaDia && horaPartidoTexto >= "16:00") pen += peso;
+
+            // Evaluaciones sobre el día entero
+            if (req.tipo === "dia_evitar" && req.dia === diaSemanaTexto) pen += peso;
+            if (req.tipo === "dia_preferido" && req.dia !== "TODOS" && req.dia !== diaSemanaTexto) pen += peso;
         }
     }
 
     return { imp, pen };
 }
 
-async function generarPrimeraRonda(horariosPorPista, inscripciones, cabezasDeSerie = {}, apiKey, intentos = 1000) {
+async function generarPrimeraRonda(horariosPorPista, inscripciones, cabezasDeSerie = {}, apiKey, formatos = {}, intentos = 1000) {
     const grupos = {};
     const categoriasIA = {};
     const observacionesIA = {};
@@ -78,107 +87,178 @@ async function generarPrimeraRonda(horariosPorPista, inscripciones, cabezasDeSer
 
     const prompt = construirPromptAnalisisTodas(categoriasIA, observacionesIA, {});
     const restriccionesJSON = await callOpenAI(prompt, apiKey);
-    // console.log(JSON.stringify(restriccionesJSON, null, 2));
 
-    // === EL NUEVO BUCLE DE PISTAS ===
+    // Auditoría en terminal de la respuesta de la IA
+    console.log("\n=== RESTRICCIONES DETECTADAS POR LA IA ===");
+    console.log(JSON.stringify(restriccionesJSON, null, 2));
+    console.log("==========================================\n");
+
     const slotsDisponibles = [];
     for (const datosPista of horariosPorPista) {
         for (const hora of datosPista.horarios) {
-            slotsDisponibles.push({
-                fechaHora: hora,
-                pista: datosPista.pista // Ahora guarda el nombre o ID exacto de la pista
-            });
+            slotsDisponibles.push({ fechaHora: hora, pista: datosPista.pista });
         }
     }
 
-    // Usaremos un Set global para ir tachando los slots que ya se han gastado en otros grupos
+    slotsDisponibles.sort((a, b) => new Date(a.fechaHora) - new Date(b.fechaHora));
+
     const slotsGastadosGlobales = new Set();
     const cuadroTorneo = {};
 
     for (const [nombreGrupo, parejas] of Object.entries(grupos)) {
-        let numParejas = parejas.length;
-        let potencia = 1;
-        while (potencia < numParejas) potencia *= 2;
-
-        const bracketBase = new Array(potencia).fill(null);
-        const semillas = cabezasDeSerie[nombreGrupo] || [];
+        const formato = formatos[nombreGrupo] || 'bracket';
         const restriccionesCat = restriccionesJSON[nombreGrupo] || {};
-
-        let parejasRestantes = [];
-        let seed1 = null, seed2 = null;
-
-        for (const j of parejas) {
-            if (semillas.length > 0 && j.nombre === semillas[0]) seed1 = j;
-            else if (semillas.length > 1 && j.nombre === semillas[1]) seed2 = j;
-            else parejasRestantes.push(j);
-        }
-
-        if (seed1) bracketBase[0] = seed1;
-        if (seed2) bracketBase[potencia - 1] = seed2;
-
-        // Para evitar huecos vacíos que Javascript lee de array(potencia)
-        let bracketIntentoReal = [];
-
-        const fantasmasNecesarios = potencia - numParejas;
-        
-        // 1. Establecer el orden de prioridad estricto para los BYES
-        const ordenPrioridad = [];
-        if (potencia >= 4) {
-            ordenPrioridad.push(1);            // Prioridad 1: Oponente del cabeza de serie 1 (índice 0)
-            ordenPrioridad.push(potencia - 2); // Prioridad 2: Oponente del cabeza de serie 2 (índice final)
-        } else if (potencia === 2) {
-            ordenPrioridad.push(1);
-        }
-
-        // 2. Rellenar el resto de la lista de prioridad con otras posiciones impares
-        for (let i = 1; i < potencia; i += 2) {
-            if (!ordenPrioridad.includes(i)) {
-                ordenPrioridad.push(i);
-            }
-        }
-
-        // 3. Tomar EXACTAMENTE los byes necesarios, respetando la prioridad
-        const posicionesAsignadas = ordenPrioridad.slice(0, fantasmasNecesarios);
-
-        // 4. Inyectar los fantasmas en sus posiciones definitivas dentro de bracketBase
-        for (let pos of posicionesAsignadas) {
-            bracketBase[pos] = { nombre: "Fantasma (BYE)", esBye: true };
-        }
 
         let mejorCuadroGrupo = null;
         let mejorScoreGlobal = { imp: Infinity, pen: Infinity };
-        let actual_orden = [...parejasRestantes];
         let estancamiento = 0;
 
-        for (let intento = 0; intento < intentos; intento++) {
-            let intento_orden = [...actual_orden];
-            if (intento > 0) {
-                const idx1 = Math.floor(Math.random() * intento_orden.length);
-                const idx2 = Math.floor(Math.random() * intento_orden.length);
-                [intento_orden[idx1], intento_orden[idx2]] = [intento_orden[idx2], intento_orden[idx1]];
+        if (formato === 'bracket') {
+            // --- LÓGICA DE BRACKET ELIMINATORIO ---
+            let numParejas = parejas.length;
+            let potencia = 1;
+            while (potencia < numParejas) potencia *= 2;
+
+            const bracketBase = new Array(potencia).fill(null);
+            const semillas = cabezasDeSerie[nombreGrupo] || [];
+            let parejasRestantes = [];
+            let seed1 = null, seed2 = null;
+
+            for (const j of parejas) {
+                if (semillas.length > 0 && j.nombre === semillas[0]) seed1 = j;
+                else if (semillas.length > 1 && j.nombre === semillas[1]) seed2 = j;
+                else parejasRestantes.push(j);
             }
 
-            let bracketIntento = [...bracketBase];
-            let puntero = 0;
-            for (let i = 0; i < potencia; i++) {
-                if (bracketIntento[i] === null) {
-                    bracketIntento[i] = intento_orden[puntero] || { nombre: "Fantasma (BYE)", esBye: true };
-                    puntero++;
+            if (seed1) bracketBase[0] = seed1;
+            if (seed2) bracketBase[potencia - 1] = seed2;
+
+            const fantasmasNecesarios = potencia - numParejas;
+            const ordenPrioridad = [];
+            if (potencia >= 4) {
+                ordenPrioridad.push(1);
+                ordenPrioridad.push(potencia - 2);
+            } else if (potencia === 2) {
+                ordenPrioridad.push(1);
+            }
+            for (let i = 1; i < potencia; i += 2) {
+                if (!ordenPrioridad.includes(i)) ordenPrioridad.push(i);
+            }
+            const posicionesAsignadas = ordenPrioridad.slice(0, fantasmasNecesarios);
+            for (let pos of posicionesAsignadas) {
+                bracketBase[pos] = { nombre: "Fantasma (BYE)", esBye: true };
+            }
+
+            let actual_orden = [...parejasRestantes];
+
+            for (let intento = 0; intento < intentos; intento++) {
+                let intento_orden = [...actual_orden];
+                if (intento > 0) {
+                    const idx1 = Math.floor(Math.random() * intento_orden.length);
+                    const idx2 = Math.floor(Math.random() * intento_orden.length);
+                    [intento_orden[idx1], intento_orden[idx2]] = [intento_orden[idx2], intento_orden[idx1]];
+                }
+
+                let bracketIntento = [...bracketBase];
+                let puntero = 0;
+                for (let i = 0; i < potencia; i++) {
+                    if (bracketIntento[i] === null) {
+                        bracketIntento[i] = intento_orden[puntero] || { nombre: "Fantasma (BYE)", esBye: true };
+                        puntero++;
+                    }
+                }
+
+                const partidosIntento = [];
+                let slotsUsadosVirtualmente = new Set();
+                let scoreIntento = { imp: 0, pen: 0 };
+
+                for (let i = 0; i < bracketIntento.length; i += 2) {
+                    const j1 = bracketIntento[i] || { nombre: "Fantasma (BYE)", esBye: true };
+                    const j2 = bracketIntento[i + 1] || { nombre: "Fantasma (BYE)", esBye: true };
+                    const esBye = j1.esBye || j2.esBye;
+                    const partido = { pareja1: j1.nombre, pareja2: j2.nombre, esBye };
+
+                    if (!esBye) {
+                        let mejorSlot = null;
+                        let mejorScoreSlot = { imp: Infinity, pen: Infinity };
+                        let indiceMejorSlot = -1;
+
+                        for (let s = 0; s < slotsDisponibles.length; s++) {
+                            if (slotsGastadosGlobales.has(s) || slotsUsadosVirtualmente.has(s)) continue;
+
+                            const slot = slotsDisponibles[s];
+                            const scoreSlot = evaluarPartidoUnico(j1.nombre, j2.nombre, slot.fechaHora, restriccionesCat);
+
+                            if (scoreSlot.imp < mejorScoreSlot.imp || (scoreSlot.imp === mejorScoreSlot.imp && scoreSlot.pen < mejorScoreSlot.pen)) {
+                                mejorScoreSlot = scoreSlot;
+                                mejorSlot = slot;
+                                indiceMejorSlot = s;
+                            }
+                            if (mejorScoreSlot.imp === 0 && mejorScoreSlot.pen === 0) break;
+                        }
+
+                        if (mejorSlot) {
+                            partido.fechaHora = mejorSlot.fechaHora;
+                            partido.pista = mejorSlot.pista;
+                            partido.slotIndex = indiceMejorSlot;
+                            slotsUsadosVirtualmente.add(indiceMejorSlot);
+                            scoreIntento.imp += mejorScoreSlot.imp;
+                            scoreIntento.pen += mejorScoreSlot.pen;
+                        } else {
+                            partido.error = "No hay horarios disponibles.";
+                            scoreIntento.imp += 1000;
+                        }
+                    }
+                    partidosIntento.push(partido);
+                }
+
+                let esMejor = (scoreIntento.imp < mejorScoreGlobal.imp) || (scoreIntento.imp === mejorScoreGlobal.imp && scoreIntento.pen < mejorScoreGlobal.pen);
+                if (esMejor || intento === 0) {
+                    mejorScoreGlobal = scoreIntento;
+                    mejorCuadroGrupo = partidosIntento;
+                    actual_orden = intento_orden;
+                    estancamiento = 0;
+                    if (scoreIntento.imp === 0 && scoreIntento.pen === 0) break;
+                } else {
+                    estancamiento++;
+                }
+
+                if (estancamiento > 50) {
+                    actual_orden.sort(() => Math.random() - 0.5);
+                    estancamiento = 0;
                 }
             }
 
-            const partidosIntento = [];
-            let slotsUsadosVirtualmente = new Set();
-            let scoreIntento = { imp: 0, pen: 0 };
+        } else if (formato === 'groups') {
+            // --- LÓGICA DE FASE DE GRUPOS (Round Robin) ---
+            let todosLosPartidos = [];
+            for (let i = 0; i < parejas.length; i++) {
+                for (let j = i + 1; j < parejas.length; j++) {
+                    todosLosPartidos.push({ pareja1: parejas[i], pareja2: parejas[j], esBye: false });
+                }
+            }
 
-            for (let i = 0; i < bracketIntento.length; i += 2) {
-                const j1 = bracketIntento[i] || { nombre: "Fantasma (BYE)", esBye: true };
-                const j2 = bracketIntento[i + 1] || { nombre: "Fantasma (BYE)", esBye: true };
+            let actual_orden_partidos = [...todosLosPartidos];
 
-                const esBye = j1.esBye || j2.esBye;
-                const partido = { pareja1: j1.nombre, pareja2: j2.nombre, esBye };
+            for (let intento = 0; intento < intentos; intento++) {
+                let intento_orden = [...actual_orden_partidos];
+                if (intento > 0) {
+                    const idx1 = Math.floor(Math.random() * intento_orden.length);
+                    const idx2 = Math.floor(Math.random() * intento_orden.length);
+                    [intento_orden[idx1], intento_orden[idx2]] = [intento_orden[idx2], intento_orden[idx1]];
+                }
 
-                if (!esBye) {
+                const partidosIntento = [];
+                let slotsUsadosVirtualmente = new Set();
+                let scoreIntento = { imp: 0, pen: 0 };
+
+                // Mapeo estricto para evitar que un equipo juegue dos veces a la misma hora
+                let bloqueosHorariosEquipos = {};
+                parejas.forEach(p => bloqueosHorariosEquipos[p.nombre] = new Set());
+
+                for (const matchBase of intento_orden) {
+                    const partido = { pareja1: matchBase.pareja1.nombre, pareja2: matchBase.pareja2.nombre, esBye: false };
+
                     let mejorSlot = null;
                     let mejorScoreSlot = { imp: Infinity, pen: Infinity };
                     let indiceMejorSlot = -1;
@@ -187,7 +267,14 @@ async function generarPrimeraRonda(horariosPorPista, inscripciones, cabezasDeSer
                         if (slotsGastadosGlobales.has(s) || slotsUsadosVirtualmente.has(s)) continue;
 
                         const slot = slotsDisponibles[s];
-                        const scoreSlot = evaluarPartidoUnico(j1.nombre, j2.nombre, slot.fechaHora, restriccionesCat);
+
+                        // Control de colisión temporal
+                        if (bloqueosHorariosEquipos[partido.pareja1].has(slot.fechaHora) ||
+                            bloqueosHorariosEquipos[partido.pareja2].has(slot.fechaHora)) {
+                            continue;
+                        }
+
+                        const scoreSlot = evaluarPartidoUnico(partido.pareja1, partido.pareja2, slot.fechaHora, restriccionesCat);
 
                         if (scoreSlot.imp < mejorScoreSlot.imp || (scoreSlot.imp === mejorScoreSlot.imp && scoreSlot.pen < mejorScoreSlot.pen)) {
                             mejorScoreSlot = scoreSlot;
@@ -200,47 +287,49 @@ async function generarPrimeraRonda(horariosPorPista, inscripciones, cabezasDeSer
 
                     if (mejorSlot) {
                         partido.fechaHora = mejorSlot.fechaHora;
-                        // === ASIGNAMOS LA PISTA EXACTA DE ESE SLOT ===
                         partido.pista = mejorSlot.pista;
                         partido.slotIndex = indiceMejorSlot;
+
                         slotsUsadosVirtualmente.add(indiceMejorSlot);
+                        bloqueosHorariosEquipos[partido.pareja1].add(mejorSlot.fechaHora);
+                        bloqueosHorariosEquipos[partido.pareja2].add(mejorSlot.fechaHora);
+
                         scoreIntento.imp += mejorScoreSlot.imp;
                         scoreIntento.pen += mejorScoreSlot.pen;
                     } else {
                         partido.error = "No hay horarios disponibles.";
                         scoreIntento.imp += 1000;
                     }
+                    partidosIntento.push(partido);
                 }
-                partidosIntento.push(partido);
-            }
 
-            let esMejor = (scoreIntento.imp < mejorScoreGlobal.imp) ||
-                (scoreIntento.imp === mejorScoreGlobal.imp && scoreIntento.pen < mejorScoreGlobal.pen);
+                let esMejor = (scoreIntento.imp < mejorScoreGlobal.imp) || (scoreIntento.imp === mejorScoreGlobal.imp && scoreIntento.pen < mejorScoreGlobal.pen);
+                if (esMejor || intento === 0) {
+                    mejorScoreGlobal = scoreIntento;
+                    mejorCuadroGrupo = partidosIntento;
+                    actual_orden_partidos = intento_orden;
+                    estancamiento = 0;
+                    if (scoreIntento.imp === 0 && scoreIntento.pen === 0) break;
+                } else {
+                    estancamiento++;
+                }
 
-            if (esMejor || intento === 0) {
-                mejorScoreGlobal = scoreIntento;
-                mejorCuadroGrupo = partidosIntento;
-                actual_orden = intento_orden;
-                estancamiento = 0;
-
-                if (scoreIntento.imp === 0 && scoreIntento.pen === 0) break;
-            } else {
-                estancamiento++;
-            }
-
-            if (estancamiento > 50) {
-                actual_orden.sort(() => Math.random() - 0.5);
-                estancamiento = 0;
+                if (estancamiento > 50) {
+                    actual_orden_partidos.sort(() => Math.random() - 0.5);
+                    estancamiento = 0;
+                }
             }
         }
 
-        for (const partido of mejorCuadroGrupo) {
-            if (!partido.esBye && partido.slotIndex !== undefined) {
-                slotsGastadosGlobales.add(partido.slotIndex);
-                delete partido.slotIndex;
+        // Purgado de slots y guardado del mejor resultado de la categoría
+        if (mejorCuadroGrupo) {
+            for (const partido of mejorCuadroGrupo) {
+                if (!partido.esBye && partido.slotIndex !== undefined) {
+                    slotsGastadosGlobales.add(partido.slotIndex);
+                    delete partido.slotIndex;
+                }
             }
         }
-
         cuadroTorneo[nombreGrupo] = mejorCuadroGrupo;
     }
 
@@ -350,7 +439,13 @@ function construirPromptAnalisisTodas(categorias, observacionesCat) {
         - Preferencias sin consecuencias importantes
         - Ejemplo: "Si puede ser el 26 antes de las 19h, sino no pasa nada" → BLANDA (peso alto)
 
+        REGLAS DE TIPADO ESTRICTO:
+        - Para el tipo "rango_fechas", las claves "desde" y "hasta" DEBEN ser obligatoriamente números enteros (del 1 al 31) representando el día del mes.
+        - Nunca uses strings ni texto como "EN_ADELANTE" o "DIA_20". 
+        - Si un rango no tiene límite superior (ej. "a partir del día 20"), el campo "hasta" debe ser estrictamente el valor primitivo null.
+
         AMBIGÜEDADES:
+        - REGLA DE ORO: Las indicaciones de hora directas y concisas (ej. "Jugar a las 19", "A partir de las 18") SIN léxico de flexibilidad explícito ("si es posible", "mejor"), DEBEN considerarse SIEMPRE RESTRICCIONES DURAS. No asumas que es una preferencia a menos que el jugador lo indique claramente.
         - "Como muy tarde 20h" → DURA si no hay flexibilidad
         - "Como muy tarde 20h + sino no pasa nada" → BLANDA (peso alto)
         - "No más tarde de 20h por favor" → BLANDA (cortesía)
@@ -437,123 +532,4 @@ if (typeof module !== 'undefined' && module.exports) {
         construirPromptAnalisisTodas,
         callOpenAI
     };
-}
-
-// --- EJEMPLO DE USO (SOLO EN ENTORNO NODE.JS) ---
-if (typeof require !== 'undefined' && require.main === module) {
-    // ... (rest of the example code remains)
-    const misInscripciones = [
-        { grupo: "PRIMERA MASCULINA", nombre: "Marc Quixal Beltran - Miquel Meseguer Fonollosa", observaciones: "Marc Quixal i Miquel Meseguer  Disponibilitat: tots los dies a partir de els 20:30h   DIJOUS NO DISSABTE DE MATÍ TAMPOC" },
-        { grupo: "PRIMERA MASCULINA", nombre: "Samuel sanchez- Lucas Sánchez", observaciones: "Samuel Sánchez Fairweather  Lucas Sánchez Fairweather Disponibilidad: de tarde En 2@ categoría" },
-        { grupo: "PRIMERA MASCULINA", nombre: "Amado Clotet Galia - Josep Mayo Gavalda", observaciones: "" },
-        { grupo: "PRIMERA MASCULINA", nombre: "Esteban van camp- Gerard Guimerá", observaciones: "Gerard Guimerá Estaban van camp a partir de les 22 de dilluns a Dijous  Divendres a partir de les 20:30  En 1@ categoría" },
-        { grupo: "PRIMERA MASCULINA", nombre: "Albert Bassedas Gasco - Joaquim Peñarroya Camats", observaciones: "" },
-        { grupo: "PRIMERA MASCULINA", nombre: "Alex Checa Llamosí - Moisés Cortijo Stirb", observaciones: "" },
-        { grupo: "PRIMERA MASCULINA", nombre: "Carlos Belles Aparicio - Antonio Mata Benet", observaciones: "" },
-        { grupo: "PRIMERA MASCULINA", nombre: "Jaime ortega- Cristian esteller", observaciones: "Jaime ortega Cristian esteller Disponibilidad: Jugar 7 y 8,30 a poder ser A 1@ categoría" },
-        { grupo: "QUARTA MASCULNA", nombre: "Javi parras- Fran alcaide", observaciones: "Cuarta categoría" },
-        { grupo: "QUARTA MASCULNA", nombre: "Rafael pichardo -Raul blazquez", observaciones: "Rafael Pichardo Molina. Disponibilidad: todo los días a partir de las 18h RAUL BLAZQUEZ SANCHEZ,  Disponibilidad todos los días a partir de las 18:10" },
-        { grupo: "QUARTA MASCULNA", nombre: "Yassin Lachmi- Musta barohu", observaciones: "Yassin Lachmi El Ghayat  Musta barohu el bakli A partir de las 20:30 4@ categoría" },
-        { grupo: "QUARTA MASCULNA", nombre: "Iván Pegueroles - Dani Espada", observaciones: "4@ categoría" },
-        { grupo: "QUARTA MASCULNA", nombre: "sergio vizcarro -alvaro perdomo", observaciones: "" },
-        { grupo: "QUARTA MASCULNA", nombre: "Pedro obrero - David fernandez", observaciones: "Pedro Obrero Marín y David Fernández Iglesias. De lunes a viernes por las tardes a partir de las 19 y finde de semana en principio de mañana. 4@ categoría" },
-        { grupo: "QUARTA MASCULNA", nombre: "Eneko Blázquez - Santi García", observaciones: "Eneko Blázquez Santi García Barba  4@ categoría" },
-        { grupo: "QUARTA MASCULNA", nombre: "ximo esteller -ivan fernandez", observaciones: "" },
-        { grupo: "SEGONA  FEMENINA", nombre: "Jacqueline Colom Sieiro,Andrea Arnau Traver", observaciones: "" },
-        { grupo: "SEGONA  FEMENINA", nombre: "Aroa Jiménez - Patricia moreno", observaciones: "Aroa Jiménez Martorell  Patricia Moreno García-Pardo Jugar a las 19  Pueden todos los días  2@ femenina" },
-        { grupo: "SEGONA  FEMENINA", nombre: "Sara Cherta - Sandra Cuadros", observaciones: "" },
-        { grupo: "SEGONA MASCULINA", nombre: "Nil Sabaté vidal - Josep Lorente Bordes", observaciones: "Segona Jugar lo mes pronte posible perfa" },
-        { grupo: "SEGONA MASCULINA", nombre: "Eudald Aubalat Queralt - Ramon Reverte Romeu", observaciones: "Segona" },
-        { grupo: "SEGONA MASCULINA", nombre: "Joan Foix Negre - bruno baca soriano", observaciones: "Bruno baca enero Joan foix negre Disponibilitat tots els dies a partir de 19:00 A 2@ categoría" },
-        { grupo: "SEGONA MASCULINA", nombre: "Marc maluenda - Marc querol", observaciones: "Marc Maluenda Marin Joan Querol Fores  Disponibilidad: Todos los dias a partir de 18:30 2@ categoría" },
-        { grupo: "SEGONA MASCULINA", nombre: "Manuel Monserrat Comes,Marc Segarra Ballester", observaciones: "Dilluns, dimarts i dimecres jugar a partir de 20:30h" },
-        { grupo: "SEGONA MASCULINA", nombre: "VICTOR ALONSO LORES - Iu Callarisa Querol", observaciones: "Iu Callarisa Querol Victor Alonso 2@ categoría  Tots els dies a partir de les 19:30  Dimarts no poden jugar" },
-        { grupo: "SEGONA MASCULINA", nombre: "Juanca lores- Miguel moreno", observaciones: "Guillermo moreno  Juanka lores A partir de las 19 2@ categoría" },
-        { grupo: "SEGONA MASCULINA", nombre: "Andrés Gómez Pasadas,Sebastian Febrer Obon", observaciones: "Camisetas los dos tallas XL.  Disponibilidad: De lunes a viernes de 18h en adelante. Sábado y domingo preferiblemente por la mañana." },
-        { grupo: "SEGONA MASCULINA", nombre: "Denis monfort - Josep bueno", observaciones: "Denis Monfort L Josep Bueno XL Disponibilitat totes les tardes a partir de les 19 2@ categoría" },
-        { grupo: "SEGONA MASCULINA", nombre: "Roger trench - Xavier batalla", observaciones: "Segona ,Talles L i L  Horaris a partir de les 21 h" },
-        { grupo: "SEGONA MASCULINA", nombre: "Marc Blanco Caballer - Miguel Ayora Torres", observaciones: "" },
-        { grupo: "SEGONA  FEMENINA", nombre: "Stefanie Montes -Valentina pinilla", observaciones: "" },
-        { grupo: "SEGONA  FEMENINA", nombre: "Sandra Rosado Rubio,SARA PITARCH AYZA", observaciones: "" },
-        { grupo: "SEGONA  FEMENINA", nombre: "Ariadna Mercader  - Mireia Gómez", observaciones: "Ariadna Mercader Garcia  Mireia Gómez Garcia  3@ femenina" },
-        { grupo: "SEGONA MASCULINA", nombre: "aaron Félix / Juan Carlos Sánchez", observaciones: "Segunda" },
-        { grupo: "SEGONA MASCULINA", nombre: "Javier Zapata - Victor Albiol Gomez", observaciones: "" },
-        { grupo: "SEGONA MASCULINA", nombre: "David batiste - Marcos bolumar", observaciones: "buenas te he cridat antes pa incriuremos, te paso les dades: 1- David Batiste Ladrón     2-Marcos Bolumar Orti   la disponibilidad sería a partir del día 20 , y entre semana de tarde , els findes tambe podriem de mati. seria pa apuntarnos en 2a" },
-        { grupo: "SEGONA MASCULINA", nombre: "Esteban Van Camp - Houria Boukholda", observaciones: "" },
-        { grupo: "SEGONA MASCULINA", nombre: "Manel Giner Rabasco - Carlos Casarrubio Talavera", observaciones: "Manel Giner Rabasco - XL Carlos Casarrubio Talavera - XXL 2@ categoría  A les 19 si pot ser" },
-        { grupo: "TERCERA MASCULINA", nombre: "Ismael Vives Fora - Oscar Grañana Castell", observaciones: "Ok natros tardes de les 18:30 per avant siempre antes pos se tindria que mirar matins no podem" },
-        { grupo: "TERCERA MASCULINA", nombre: "Guillem Ripolles  - Kiko Royo", observaciones: "Cat 3.5 Tardes a partir d las 16.30 Camiseta L i L" },
-        { grupo: "TERCERA MASCULINA", nombre: "Adrian Comes Milian,Carles  Lin Lin", observaciones: "" },
-        { grupo: "TERCERA MASCULINA", nombre: "David Castañeda -Jose Castañeda", observaciones: "David Castañeda Borras Jose Castañeda Borras Tots els dies a partir de les 20:30" },
-        { grupo: "TERCERA MASCULINA", nombre: "Raúl Miravet Joan furio", observaciones: "Raúl Miravet Joan furio  Pueden jugar Lunes  jueves y domingo En 3@ categoría gracies" },
-        { grupo: "TERCERA MASCULINA", nombre: "erik lópez  - iker garcia", observaciones: "erik lópez ferreres iker garcia gomez A partir de les 20:30  4@ categoría" },
-        { grupo: "TERCERA MASCULINA", nombre: "Albert Alberich - Pepe roda", observaciones: "Albert Alberich Barroso Pepe roda colomer 3ª  A partir de las 19  Martes 20:30" },
-        { grupo: "TERCERA MASCULINA", nombre: "Adrián perez- Jose María Meléndez", observaciones: "Adrián Pérez López José María Melendez Narvaez 3@ categoría  A partir de las 19" },
-        { grupo: "TERCERA MASCULINA", nombre: "Ruben flos Maura - Javier Picher Alepuz", observaciones: "Ruben flos Maura Javier Picher Alepuz  En 3@ categoría" },
-        { grupo: "TERCERA MASCULINA", nombre: "Rafa marin segura- Ivan marin segura", observaciones: "Tercera categoria audi Rafa marin segura Ivan marin segura" },
-        { grupo: "TERCERA MASCULINA", nombre: "Ruben Cerdá - Miquel Piera", observaciones: "Si las partidas pueden ser a partir de las 18:30 podemos todos los dias Tercera masculina" },
-        { grupo: "TERCERA MASCULINA", nombre: "Jorge esteller - Pau mercader", observaciones: "jorge esteller guijarro  Talla L Pau mercader garcia XL Jueves y viernes no puede  3@ categoría  Gracies" },
-        { grupo: "TERCERA MASCULINA", nombre: "Ernesto sanz f - Pedro Rodríguez", observaciones: "Totes les tardes a partir de les18:00  Serien de 3@" },
-        { grupo: "TERCERA MASCULINA", nombre: "Javier Orero - Marco Sunsi", observaciones: "Podemos jugar todas las tardes y sábado por la mañana De 3@" },
-        { grupo: "TERCERA MASCULINA", nombre: "Christian Sanchez Vericat,Ferran Dellá Muñoz", observaciones: "A partir de les 20:00 Christian L Ferran L" },
-        { grupo: "TERCERA MASCULINA", nombre: "Ivan Marco Ferré - Biel Viladoms Sole", observaciones: "Tercera" },
-        { grupo: "TERCERA MASCULINA", nombre: "Joel vizcaíno - Carlos Fajardo", observaciones: "Tercera" },
-        { grupo: "TERCERA MASCULINA", nombre: "Miguel Irigaray Zambrano - Boris Enrique Pacheco Bohórquez", observaciones: "Miguel irigaray Boris pacheco Viernes no pueden 3@ categoría" },
-        { grupo: "TERCERA MASCULINA", nombre: "Ferrán torres - Fernando ferrer", observaciones: "Ferrán torres Fernando Ferrer A partir de las 20:30  3@ categoría" },
-        { grupo: "TERCERA MASCULINA", nombre: "Blai robles- robert giménez", observaciones: "Blai Robles Ferré Talla M Rober Gimenez Vazquez  Talla M 3a categoría" },
-        { grupo: "TERCERA MASCULINA", nombre: "alfredo perez -adria ruiz", observaciones: "" }
-    ];
-
-    // --- EJEMPLO DE USO ---
-
-    const misHorariosPorPista = [];
-
-    // Define los nombres de tus pistas aquí
-    const nombresPistas = ["Pista 1", "Pista 2"];
-
-    for (const nombre of nombresPistas) {
-        const horariosDeEstaPista = [];
-
-        // Bucle para los días: del 19 al 25 de Enero de 2026
-        for (let dia = 19; dia <= 25; dia++) {
-
-            // Formateamos el día para que siempre tenga dos dígitos (Ej: "19")
-            const diaStr = dia.toString().padStart(2, '0');
-
-            // 1. Horario de mañana: de 9:00 a 13:00 (Turnos: 9, 10, 11 y 12)
-            for (let hora = 9; hora < 13; hora++) {
-                const horaStr = hora.toString().padStart(2, '0');
-                // Añadimos la 'Z' al final para indicar formato estándar UTC (recomendado)
-                horariosDeEstaPista.push(new Date(`2026-01-${diaStr}T${horaStr}:00:00Z`));
-            }
-
-            // 2. Horario de tarde: de 17:00 a 22:00 (Turnos: 17, 18, 19, 20 y 21)
-            for (let hora = 17; hora < 22; hora++) {
-                const horaStr = hora.toString().padStart(2, '0');
-                horariosDeEstaPista.push(new Date(`2026-01-${diaStr}T${horaStr}:00:00Z`));
-            }
-        }
-
-        // Añadimos el bloque completo de esta pista al array principal
-        misHorariosPorPista.push({
-            pista: nombre,
-            horarios: horariosDeEstaPista
-        });
-    }
-
-    // Opcional: para comprobar cómo ha quedado
-    // console.log(JSON.stringify(misHorariosPorPista, null, 2));
-
-    const misCabezasDeSerie = {
-        "PRIMERA MASCULINA": ["Marc Quixal Beltran - Miquel Meseguer Fonollosa", "Alex Checa Llamosí - Moisés Cortijo Stirb"] // La Pareja A y E no se cruzarán hasta la final
-    };
-
-    generarPrimeraRonda(misHorariosPorPista, misInscripciones, misCabezasDeSerie)
-        .then(resultados => {
-            console.log("Torneo generado con éxito:");
-            console.log(JSON.stringify(resultados, null, 2));
-        })
-        .catch(err => {
-            console.error("Error fatal:", err);
-        });
 }

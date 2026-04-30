@@ -692,6 +692,29 @@ span.flatpickr-weekday {
   width: 320px;
 }
 
+/* Las siguientes columnas (Cuartos, Semis...) ocupan menos al ser TBD */
+.bracket-column:not(:first-child) {
+  width: 140px;
+}
+
+/* Ajustamos el tamaño del texto para las cajas pequeñas */
+.bracket-column:not(:first-child) .match-info {
+  font-size: 0.65rem;
+  padding: 0.2rem 0.4rem;
+}
+
+.bracket-column:not(:first-child) .team {
+  font-size: 0.75rem;
+  padding: 0.35rem;
+}
+
+/* Damos un margen interno al contenedor solo cuando se exporta a PDF 
+   para compensar la eliminación de los márgenes del documento */
+.pdf-exporting {
+  padding: 10mm;
+  background-color: #0d1117;
+}
+
 .match-box-container {
   display: flex;
   align-items: center;
@@ -1078,4 +1101,411 @@ span.flatpickr-weekday {
 .expand-btn:hover {
   color: var(--accent-blue);
   background: rgba(0, 163, 255, 0.08);
+}
+
+/* Editor de disponibilidad individual por pista */
+.court-batch-edit {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 15px;
+  padding-bottom: 15px;
+  border-bottom: 1px dashed var(--border-color);
+  flex-wrap: wrap;
+}
+
+.court-batch-edit .time-select {
+  width: auto !important;
+  min-width: 80px;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.85rem;
+}
+
+.court-batch-edit .btn-court-batch {
+  padding: 0.35rem 0.8rem;
+  font-size: 0.85rem;
+  white-space: nowrap;
+  background: var(--surface-color-hover);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.court-batch-edit .btn-court-batch:hover {
+  background: var(--surface-color);
+  border-color: var(--text-secondary);
+}
+
+.court-batch-edit .time-sep {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+/* =====================================================
+   RESUMEN DE INSCRIPCIONES (NUEVO PANEL)
+   ===================================================== */
+.summary-section {
+  margin-bottom: 3rem;
+  animation: fadeIn 0.4s ease-out;
+}
+
+.summary-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 1rem;
+}
+
+.summary-header h3 {
+  margin-bottom: 0;
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.badge {
+  background: var(--accent-blue);
+  color: #fff;
+  padding: 0.35rem 0.8rem;
+  border-radius: 20px;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.categories-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1.25rem;
+}
+
+.category-summary-card {
+  background: var(--bg-color);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  transition: var(--transition);
+}
+
+.category-summary-card:hover {
+  border-color: var(--accent-blue);
+}
+
+.category-summary-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.category-summary-title {
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 0.95rem;
+  line-height: 1.3;
+}
+
+.category-count {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  background: var(--surface-color-hover);
+  padding: 0.25rem 0.6rem;
+  border-radius: 4px;
+  white-space: nowrap;
+  margin-left: 0.5rem;
+}
+
+.format-select {
+  width: 100%;
+  padding: 0.6rem;
+  font-size: 0.85rem;
+  background: var(--surface-color);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  border-radius: 6px;
+  outline: none;
+  cursor: pointer;
+  font-family: var(--font-family);
+}
+
+.format-select:focus {
+  border-color: var(--accent-blue);
+}
+
+/* =====================================================
+   FASE DE GRUPOS (TABLAS DE ENFRENTAMIENTOS)
+   ===================================================== */
+.groups-wrapper {
+  overflow-x: auto;
+  background: var(--bg-color);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+}
+
+.groups-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 700px;
+}
+
+.groups-table th,
+.groups-table td {
+  padding: 1rem;
+  text-align: left;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.groups-table th {
+  background: var(--surface-color-hover);
+  color: var(--text-secondary);
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 0.8rem;
+  letter-spacing: 1px;
+}
+
+.groups-table td {
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  vertical-align: middle;
+}
+
+.groups-table tr:last-child td {
+  border-bottom: none;
+}
+
+.groups-table tr:hover td {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.cell-time {
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.badge-court {
+  background: rgba(0, 163, 255, 0.1);
+  color: var(--accent-blue);
+  padding: 0.35rem 0.6rem;
+  border-radius: 4px;
+  font-weight: 600;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.vs-teams {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.vs-teams .team-name {
+  font-weight: 600;
+  flex: 1;
+}
+
+.vs-teams .vs {
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  font-style: italic;
+  background: var(--surface-color);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.score-input {
+  background: var(--surface-color);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  padding: 0.5rem 0.8rem;
+  border-radius: 6px;
+  width: 140px;
+  font-family: var(--font-family);
+  outline: none;
+  transition: var(--transition);
+}
+
+.score-input:focus {
+  border-color: var(--accent-blue);
+  box-shadow: 0 0 0 2px rgba(0, 163, 255, 0.2);
+}
+
+/* Cabecera de la sección de cuadros */
+.draws-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 2rem;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+/* 
+   Directivas críticas para el generador PDF: 
+   Fuerza un salto de página antes de cada categoría (excepto la primera)
+   y evita que se parta una categoría o tabla a la mitad.
+*/
+.bracket-category:not(:first-child) {
+  page-break-before: always;
+  break-before: page;
+}
+
+/* Permite que el contenedor crezca a su tamaño físico real para la foto del PDF */
+.pdf-exporting .bracket-category {
+  overflow: visible !important;
+  width: max-content !important;
+}
+
+/* Evitar que las filas de las tablas se partan entre páginas */
+.groups-table tr {
+  page-break-inside: avoid;
+  break-inside: avoid;
+}
+
+/* =====================================================
+   SISTEMA DE PESTAÑAS Y VISTA DE HORARIOS (CRONOGRAMA)
+   ===================================================== */
+.draws-header-left {
+  display: flex;
+  align-items: center;
+  gap: 2rem;
+  flex-wrap: wrap;
+}
+
+.view-toggle {
+  display: flex;
+  background: var(--surface-color);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.toggle-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  padding: 0.6rem 1.2rem;
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.toggle-btn:hover {
+  color: var(--text-primary);
+  background: var(--surface-color-hover);
+}
+
+.toggle-btn.active {
+  background: var(--accent-blue);
+  color: #fff;
+}
+
+/* Contenedor del cronograma */
+.schedule-day-block {
+  margin-bottom: 3rem;
+  background: var(--surface-color);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  padding: 1.5rem;
+  page-break-inside: avoid;
+  break-inside: avoid;
+}
+
+.schedule-date {
+  color: var(--text-primary);
+  border-bottom: 2px solid var(--accent-blue);
+  padding-bottom: 0.5rem;
+  margin-bottom: 1.5rem;
+  display: inline-block;
+}
+
+.schedule-courts-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 1.5rem;
+}
+
+.schedule-court-col {
+  background: var(--bg-color);
+  border-radius: 8px;
+  padding: 1rem;
+  border: 1px solid var(--border-color);
+}
+
+.court-name-title {
+  color: var(--accent-blue);
+  text-align: center;
+  margin-bottom: 1rem;
+  font-size: 1.1rem;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.schedule-matches-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.s-match-card {
+  display: flex;
+  align-items: center;
+  background: var(--surface-color);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.s-match-time {
+  background: var(--surface-color-hover);
+  color: var(--accent-blue);
+  font-weight: 700;
+  padding: 1rem 0.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-right: 1px solid var(--border-color);
+  font-size: 1rem;
+}
+
+.s-match-details {
+  padding: 0.75rem;
+  flex: 1;
+}
+
+.s-match-cat {
+  font-size: 0.7rem;
+  background: rgba(0, 163, 255, 0.15);
+  color: #fff;
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-bottom: 0.4rem;
+  display: inline-block;
+  text-transform: uppercase;
+}
+
+.s-match-players {
+  font-size: 0.85rem;
+  color: var(--text-primary);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.s-vs {
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+  font-style: italic;
+  padding-left: 0.5rem;
+}
+
+/* Modificar la clase del PDF para que exporte ambas vistas si hace falta */
+.pdf-exporting .schedule-day-block {
+  overflow: visible !important;
 }

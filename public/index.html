@@ -10,8 +10,9 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
-    <script src="https://npmcdn.com/flatpickr/dist/l10n/ca.js"></script>
+    <script src="https://npmcdn.com/flatpickr/dist/l10n/cat.js"></script>
     <script src="https://npmcdn.com/flatpickr/dist/l10n/es.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 </head>
 
 <body>
@@ -96,6 +97,17 @@
             </div>
         </section>
 
+        <!-- Resumen de Inscripciones (Oculto por defecto) -->
+        <section id="inscriptions-summary-section" class="summary-section card hidden">
+            <div class="summary-header">
+                <h3 id="txt-summary-title">Resumen de Inscripciones</h3>
+                <span id="total-inscriptions-badge" class="badge">0 Totales</span>
+            </div>
+            <div id="categories-grid" class="categories-grid">
+                <!-- Generat dinàmicament -->
+            </div>
+        </section>
+
         <!-- Action Buttons -->
         <section class="actions-section">
             <button id="btn-generate-seeds" class="btn-primary">Generar caps de sèrie</button>
@@ -110,7 +122,7 @@
             Falten dades. Si us plau, puja tots els arxius i configura el torneig.
         </div>
 
-        <section class="results-section">
+        <section class="results-section hidden">
             <div class="column masculine-col">
                 <h3 id="txt-masc-title" class="col-title">Categories Masculines</h3>
                 <div id="masc-results" class="results-list">
@@ -126,11 +138,27 @@
             </div>
         </section>
 
-        <!-- Draws Section (Brackets) -->
+        <!-- Draws Section (Brackets & Schedule) -->
         <section class="draws-section mt-5" id="draws-section" style="display: none;">
-            <h2 id="txt-draws-title" class="col-title"
-                style="margin-bottom:2rem; font-size:2rem; color:var(--accent-blue)">Cuadros Generados</h2>
+            <div class="draws-header">
+                <div class="draws-header-left">
+                    <h2 id="txt-draws-title" class="col-title"
+                        style="margin-bottom:0; font-size:2rem; color:var(--accent-blue)">Cuadros Generados</h2>
+                    <div class="view-toggle">
+                        <button id="btn-view-categories" class="toggle-btn active">Vista por Categorías</button>
+                        <button id="btn-view-schedule" class="toggle-btn">Horario por Pistas</button>
+                    </div>
+                </div>
+                <button id="btn-download-pdf" class="btn-primary">Descargar PDF</button>
+            </div>
+
+            <!-- Contenedor 1: Árboles y Grupos -->
             <div id="draws-container" class="draws-container">
+                <!-- Generat dinàmicament -->
+            </div>
+
+            <!-- Contenedor 2: Cronograma -->
+            <div id="schedule-container" class="schedule-container hidden">
                 <!-- Generat dinàmicament -->
             </div>
         </section>
@@ -146,9 +174,6 @@
             <div class="social-links">
                 <a href="https://www.instagram.com/koalavirtual_/" target="_blank">Instagram</a>
                 <a href="https://www.tiktok.com/@koalavirtual" target="_blank">TikTok</a>
-                <a href="#" target="_blank">LinkedIn</a>
-                <a href="#" target="_blank">Facebook</a>
-                <a href="#" target="_blank">Twitter</a>
             </div>
         </div>
     </footer>
